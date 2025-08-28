@@ -233,9 +233,9 @@ where
     ) -> Option<canvas::Action<Interaction>> {
         match event {
             Event::Mouse(mouse::Event::CursorMoved { .. }) => {
-                // Only enable hover when zoomed in (above zoom_min) and points are visible
+                // Only enable hover when zoomed in (not in full view) and points are visible
                 let effective_zoom = self.effective_zoom(state);
-                if effective_zoom.value() > self.zoom_min {
+                if effective_zoom.is_value() {
                     if let Some(cursor_position) = cursor.position_in(bounds) {
                         let new_hovered = self.find_nearest_point(cursor_position, bounds, state);
 
@@ -285,8 +285,10 @@ where
                         mouse::ScrollDelta::Lines { y, .. }
                         | mouse::ScrollDelta::Pixels { y, .. } => {
                             let new_zoom = if y.is_sign_positive() {
+                                // Zooming in
                                 state.zoom.increment_with_limits(self.zoom_max)
                             } else {
+                                // Zooming out
                                 state.zoom.decrement_with_limits(self.zoom_min)
                             };
 
@@ -332,27 +334,36 @@ where
 
             // Apply zoom to determine how many points to show
             let effective_zoom = self.effective_zoom(state);
-            let zoom_factor = effective_zoom.value();
             let base_points = self.base_points; // Use configurable base points
-            let max_visible_points = if zoom_factor >= 1.0 {
-                // Zooming in: show fewer points for more detail
-                (base_points / zoom_factor).max(5.0) as usize
-            } else if zoom_factor <= self.zoom_min {
-                // At minimum zoom or below, show all available data points
-                all_datapoints.len()
-            } else {
-                // Zooming out: show more points for broader view
-                (base_points / zoom_factor).min(all_datapoints.len() as f32) as usize
+            let max_visible_points = match effective_zoom {
+                Zoom::Full => {
+                    // Full view mode - display all available data points
+                    all_datapoints.len()
+                }
+                Zoom::Value(zoom_factor) => {
+                    if zoom_factor >= 1.0 {
+                        // Zooming in: show fewer points for more detail
+                        (base_points / zoom_factor).max(5.0) as usize
+                    } else {
+                        // Zooming out: show more points for broader view
+                        (base_points / zoom_factor).min(all_datapoints.len() as f32) as usize
+                    }
+                }
             };
 
-            let start_index = if zoom_factor <= self.zoom_min {
-                // At minimum zoom, show all data from the beginning
-                0
-            } else if all_datapoints.len() > max_visible_points {
-                // For other zoom levels, show the most recent data
-                all_datapoints.len() - max_visible_points
-            } else {
-                0
+            let start_index = match effective_zoom {
+                Zoom::Full => {
+                    // In full view mode, show all data from the beginning
+                    0
+                }
+                Zoom::Value(_) => {
+                    if all_datapoints.len() > max_visible_points {
+                        // For other zoom levels, show the most recent data
+                        all_datapoints.len() - max_visible_points
+                    } else {
+                        0
+                    }
+                }
             };
 
             let visible_datapoints: Vec<_> = all_datapoints.into_iter().skip(start_index).collect();
@@ -401,7 +412,7 @@ where
             }
 
             // Draw data points if enabled (but not in full view)
-            if self.show_points && zoom_factor > self.zoom_min {
+            if self.show_points && effective_zoom.is_value() {
                 self.draw_points(
                     frame,
                     &points,
@@ -431,7 +442,7 @@ where
                     average,
                     value_range,
                     &palette,
-                    zoom_factor,
+                    effective_zoom,
                     &visible_datapoints_f64,
                 );
             }
@@ -464,23 +475,34 @@ where
 
         // Use the same zoom calculation logic as the draw method
         let effective_zoom = self.effective_zoom(state);
-        let zoom_factor = effective_zoom.value();
         let base_points = self.base_points;
 
-        let max_visible_points = if zoom_factor >= 1.0 {
-            (base_points / zoom_factor).max(5.0) as usize
-        } else if zoom_factor <= self.zoom_min {
-            all_datapoints.len()
-        } else {
-            (base_points / zoom_factor).min(all_datapoints.len() as f32) as usize
+        let max_visible_points = match effective_zoom {
+            Zoom::Full => {
+                // Full view mode - display all available data points
+                all_datapoints.len()
+            }
+            Zoom::Value(zoom_factor) => {
+                if zoom_factor >= 1.0 {
+                    (base_points / zoom_factor).max(5.0) as usize
+                } else {
+                    (base_points / zoom_factor).min(all_datapoints.len() as f32) as usize
+                }
+            }
         };
 
-        let start_index = if zoom_factor <= self.zoom_min {
-            0
-        } else if all_datapoints.len() > max_visible_points {
-            all_datapoints.len() - max_visible_points
-        } else {
-            0
+        let start_index = match effective_zoom {
+            Zoom::Full => {
+                // In full view mode, show all data from the beginning
+                0
+            }
+            Zoom::Value(_) => {
+                if all_datapoints.len() > max_visible_points {
+                    all_datapoints.len() - max_visible_points
+                } else {
+                    0
+                }
+            }
         };
 
         let visible_datapoints: Vec<_> = all_datapoints.into_iter().skip(start_index).collect();
@@ -762,7 +784,7 @@ where
         average: f64,
         value_range: f64,
         palette: &iced::theme::palette::Extended,
-        zoom_factor: f32,
+        zoom: Zoom,
         visible_datapoints: &[(usize, f64)],
     ) {
         let text_color = palette.background.base.text;
@@ -899,10 +921,15 @@ where
         );
 
         frame.fill_text(canvas::Text {
-            content: if zoom_factor.fract() == 0.0 {
-                format!("Performance Timeline (Zoom: {}x)", zoom_factor as u32)
-            } else {
-                format!("Performance Timeline (Zoom: {:.2}x)", zoom_factor)
+            content: match zoom {
+                Zoom::Full => "Performance Timeline (Full View)".to_string(),
+                Zoom::Value(zoom_factor) => {
+                    if zoom_factor.fract() == 0.0 {
+                        format!("Performance Timeline (Zoom: {}x)", zoom_factor as u32)
+                    } else {
+                        format!("Performance Timeline (Zoom: {:.2}x)", zoom_factor)
+                    }
+                }
             },
             position: Point::new(bounds.width / 2.0, 20.0),
             color: text_color,
@@ -914,10 +941,9 @@ where
         });
 
         // Add subtitle for units and data range
-        let data_info = if zoom_factor <= self.zoom_min {
-            format!("(Showing all {} points)", visible_datapoints.len())
-        } else {
-            format!("(Showing last {} points)", visible_datapoints.len())
+        let data_info = match zoom {
+            Zoom::Full => format!("(Showing all {} points)", visible_datapoints.len()),
+            Zoom::Value(_) => format!("(Showing last {} points)", visible_datapoints.len()),
         };
 
         frame.fill_text(canvas::Text {

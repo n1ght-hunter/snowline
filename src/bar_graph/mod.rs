@@ -202,7 +202,10 @@ where
             Event::Mouse(mouse::Event::CursorMoved { .. }) => {
                 if let Some(cursor_position) = cursor.position_in(bounds) {
                     let effective_zoom = self.effective_zoom(state);
-                    let visible_bars = (self.base_bars * effective_zoom.value()) as usize;
+                    let visible_bars = match effective_zoom {
+                        Zoom::Full => self.datapoints.clone().count(),
+                        Zoom::Value(zoom_value) => (self.base_bars * zoom_value) as usize,
+                    };
                     let bar_width = bounds.width / visible_bars as f32;
 
                     let bar_index = (cursor_position.x / bar_width) as usize;
@@ -267,7 +270,10 @@ where
             let palette = theme.extended_palette();
 
             let effective_zoom = self.effective_zoom(state);
-            let visible_bars = (self.base_bars * effective_zoom.value()) as usize;
+            let visible_bars = match effective_zoom {
+                Zoom::Full => self.datapoints.clone().count(),
+                Zoom::Value(zoom_value) => (self.base_bars * zoom_value) as usize,
+            };
             let bar_width = bounds.width / visible_bars as f32;
 
             // Enumerate datapoints to get index
