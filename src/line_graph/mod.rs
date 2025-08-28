@@ -4,12 +4,11 @@ use iced::{
     widget::canvas,
 };
 
-// Re-export Zoom for backward compatibility
-pub use crate::zoom::Zoom;
+use crate::zoom::Zoom;
 
-// Import and re-export color scheme types
+// Make module public for prelude access, but don't re-export types here
 pub mod color_scheme;
-pub use color_scheme::{PointColorParams, PointColorScheme};
+use color_scheme::{PointColorParams, PointColorScheme};
 
 #[derive(Debug, Clone)]
 pub enum Interaction {

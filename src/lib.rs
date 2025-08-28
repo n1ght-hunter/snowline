@@ -9,7 +9,8 @@ pub mod zoom;
 pub mod prelude {
     pub use crate::{
         bar_graph::{
-            BarGraph, BarGraphState,
+            BarGraph,
+            state::BarGraphState,
             color_scheme::{BarColorParams, BarColorScheme},
         },
         line_graph::{
