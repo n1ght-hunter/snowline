@@ -34,14 +34,22 @@ impl App {
     }
 
     fn view(&self) -> iced::Element<'_, Message> {
-        let text = iced::widget::text("Line Graph");
+        let text = iced::widget::text("Line Graph - Scroll to zoom, hover for values");
 
         // Create data iterator - now just pass the values, enumeration happens internally
         let data_iter = self.data.iter().copied();
         let graph = iced::Element::from(
-            iced::widget::canvas(LineGraph::new(data_iter, &self.line_graph_cache, |x| {
-                x as f64
-            }))
+            iced::widget::canvas(
+                LineGraph::new(data_iter, &self.line_graph_cache, |x| x as f64)
+                    .show_points(true)
+                    .point_radius(4.0)
+                    .line_width(2.5)
+                    .performance_colors()
+                    .show_grid(true)
+                    .show_labels(true)
+                    .base_points(100.0)
+                    .zoom_range(0.1, 5.0)
+            )
             .width(Length::Fixed(650.0))
             .height(Length::Fixed(350.0)),
         )

@@ -272,7 +272,7 @@ where
                 let effective_zoom = self.effective_zoom(state);
                 if effective_zoom.value() > self.zoom_min {
                     if let Some(cursor_position) = cursor.position_in(bounds) {
-                        let new_hovered = self.find_nearest_point(cursor_position, bounds);
+                        let new_hovered = self.find_nearest_point(cursor_position, bounds, state);
 
                         if state.hovered_point != new_hovered {
                             state.hovered_point = new_hovered;
@@ -303,7 +303,7 @@ where
             }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 if let Some(cursor_position) = cursor.position_in(bounds) {
-                    if let Some(point_index) = self.find_nearest_point(cursor_position, bounds) {
+                    if let Some(point_index) = self.find_nearest_point(cursor_position, bounds, state) {
                         return Some(canvas::Action::publish(Interaction::PointClicked(
                             point_index,
                         )));
@@ -481,20 +481,89 @@ where
     I: Iterator<Item = T> + Clone + 'a,
     T: Copy + Into<f64>,
 {
-    fn find_nearest_point(&self, cursor_pos: Point, bounds: Rectangle) -> Option<usize> {
+    fn find_nearest_point(&self, cursor_pos: Point, bounds: Rectangle, state: &LineGraphState) -> Option<usize> {
         let padding = 40.0;
         let chart_width = bounds.width - 2.0 * padding;
 
-        // Collect datapoints to work with them (enumerate internally)
-        let datapoints: Vec<_> = self.datapoints.clone().enumerate().collect();
+        // We need to use the same logic as the draw method to calculate visible datapoints
+        let all_datapoints: Vec<_> = self.datapoints.clone().enumerate().collect();
+        
+        if all_datapoints.is_empty() {
+            return None;
+        }
 
-        for (i, _) in datapoints.iter().enumerate() {
-            let x = padding + (i as f32 / (datapoints.len() - 1).max(1) as f32) * chart_width;
-            if (cursor_pos.x - x).abs() <= 15.0 {
-                return Some(i);
+        // Use the same zoom calculation logic as the draw method
+        let effective_zoom = self.effective_zoom(state);
+        let zoom_factor = effective_zoom.value();
+        let base_points = self.base_points;
+        
+        let max_visible_points = if zoom_factor >= 1.0 {
+            (base_points / zoom_factor).max(5.0) as usize
+        } else if zoom_factor <= self.zoom_min {
+            all_datapoints.len()
+        } else {
+            (base_points / zoom_factor).min(all_datapoints.len() as f32) as usize
+        };
+
+        let start_index = if zoom_factor <= self.zoom_min {
+            0
+        } else if all_datapoints.len() > max_visible_points {
+            all_datapoints.len() - max_visible_points
+        } else {
+            0
+        };
+
+        let visible_datapoints: Vec<_> = all_datapoints.into_iter().skip(start_index).collect();
+
+        if visible_datapoints.is_empty() {
+            return None;
+        }
+
+        // Find the nearest point using the same coordinate calculation as drawing
+        let mut closest_index = None;
+        let mut closest_distance = f32::INFINITY;
+        
+        // We also need the y-coordinates to calculate true distance
+        let values: Vec<f64> = visible_datapoints
+            .iter()
+            .map(|(_, v)| (self.to_float)(*v))
+            .collect();
+            
+        if values.is_empty() {
+            return None;
+        }
+        
+        let min_value = values.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+        let max_value = values.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+        let value_range = max_value - min_value;
+        
+        if value_range == 0.0 {
+            return None;
+        }
+        
+        let chart_height = bounds.height - 2.0 * padding;
+        
+        for (i, (_original_index, _)) in visible_datapoints.iter().enumerate() {
+            let x = padding + (i as f32 / (visible_datapoints.len() - 1).max(1) as f32) * chart_width;
+            
+            // Calculate y coordinate using same logic as drawing
+            let value_f64 = values[i];
+            let normalized_value = (value_f64 - min_value) / value_range;
+            let y = padding + chart_height - (normalized_value as f32 * chart_height);
+            
+            // Calculate distance to the actual point (both x and y)
+            let dx = cursor_pos.x - x;
+            let dy = cursor_pos.y - y;
+            let distance = (dx * dx + dy * dy).sqrt();
+            
+            // Use a slightly larger radius for better usability
+            if distance <= 20.0 && distance < closest_distance {
+                closest_distance = distance;
+                closest_index = Some(i);
             }
         }
-        None
+        
+        closest_index
     }
 
     fn draw_grid(
