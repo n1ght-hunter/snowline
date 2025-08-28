@@ -1,7 +1,7 @@
 use iced::mouse;
 use iced::widget::canvas;
 use iced::{
-    Bottom, Center, Color, Event, Font, Pixels, Point, Rectangle, Renderer, Size, Theme, Top,
+    Bottom, Center, Color, Event, Font, Pixels, Point, Rectangle, Renderer, Right, Size, Theme, Top,
 };
 
 pub use canvas::Cache;
@@ -16,18 +16,28 @@ pub enum Interaction {
     ZoomChanged(Zoom),
 }
 
+/// Parameters passed to bar color functions
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct BarColorParams<'a> {
+    pub index: usize,
+    pub value: f64,
+    pub average: f64,
+    pub theme: &'a Theme,
+}
+
 pub enum BarColorScheme {
     Single(Color),
-    Function(Box<dyn Fn(f64, f64, &Theme) -> Color + Send + Sync>),
+    Function(Box<dyn Fn(&BarColorParams) -> Color + Send + Sync>),
 }
 
 impl Default for BarColorScheme {
     fn default() -> Self {
         // Default performance-based color scheme
-        Self::Function(Box::new(|value, average, _theme| {
-            if value < average * 0.7 {
+        Self::Function(Box::new(|params| {
+            if params.value < params.average * 0.7 {
                 Color::from_rgb(0.2, 0.8, 0.3) // Green for good performance
-            } else if value > average * 1.3 {
+            } else if params.value > params.average * 1.3 {
                 Color::from_rgb(0.9, 0.3, 0.3) // Red for poor performance
             } else {
                 Color::from_rgb(1.0, 0.7, 0.2) // Orange for average performance
@@ -139,7 +149,7 @@ where
 
     pub fn bar_color_fn<F>(mut self, color_fn: F) -> Self
     where
-        F: Fn(f64, f64, &Theme) -> Color + Send + Sync + 'static,
+        F: Fn(&BarColorParams) -> Color + Send + Sync + 'static,
     {
         self.bar_color_scheme = BarColorScheme::Function(Box::new(color_fn));
         self
@@ -157,10 +167,10 @@ where
 
     /// Default performance-based color scheme (green for good, red for poor, orange for average)
     pub fn performance_colors(mut self) -> Self {
-        self.bar_color_scheme = BarColorScheme::Function(Box::new(|value, average, _theme| {
-            if value < average * 0.7 {
+        self.bar_color_scheme = BarColorScheme::Function(Box::new(|params| {
+            if params.value < params.average * 0.7 {
                 Color::from_rgb(0.2, 0.8, 0.3) // Green for good performance
-            } else if value > average * 1.3 {
+            } else if params.value > params.average * 1.3 {
                 Color::from_rgb(0.9, 0.3, 0.3) // Red for poor performance
             } else {
                 Color::from_rgb(1.0, 0.7, 0.2) // Orange for average performance
@@ -172,10 +182,24 @@ where
     /// Theme-aware color scheme that adapts to the current theme
     pub fn theme_colors(mut self) -> Self {
         self.bar_color_scheme =
-            BarColorScheme::Function(Box::new(|_value, _average, theme| {
-                let palette = theme.extended_palette();
+            BarColorScheme::Function(Box::new(|params| {
+                let palette = params.theme.extended_palette();
                 palette.primary.base.color
             }));
+        self
+    }
+
+    /// Index-based color scheme: green for index < 6, yellow for index 6, red for index > 6
+    pub fn traffic_light_colors(mut self) -> Self {
+        self.bar_color_scheme = BarColorScheme::Function(Box::new(|params| {
+            if params.index < 6 {
+                Color::from_rgb(0.2, 0.8, 0.3) // Green
+            } else if params.index == 6 {
+                Color::from_rgb(1.0, 0.9, 0.0) // Yellow
+            } else {
+                Color::from_rgb(0.9, 0.3, 0.3) // Red
+            }
+        }));
         self
     }
 
@@ -312,24 +336,57 @@ where
                 return;
             }
 
-            let pixels_per_unit = bounds.height / max_value as f32;
+            // Reserve space at bottom for zero values and labels
+            let bottom_margin = 40.0;
+            let available_height = bounds.height - bottom_margin;
+            let pixels_per_unit = available_height / max_value as f32;
 
             // Draw bars
             for (i, (_original_index, datapoint)) in datapoints.iter().take(visible_bars).enumerate() {
                 let value = (self.to_float)(*datapoint);
-                let bar_height = (value * pixels_per_unit as f64) as f32;
+                
+                // Minimum bar height for zero values to be visible
+                let min_bar_height = if value == 0.0 { 3.0 } else { 0.0 };
+                let bar_height = ((value * pixels_per_unit as f64) as f32).max(min_bar_height);
+
+                // Add some padding between bars
+                let bar_padding = bar_width * 0.1;
+                let actual_bar_width = bar_width - bar_padding;
 
                 let bar = Rectangle {
-                    x: i as f32 * bar_width,
-                    y: bounds.height - bar_height,
-                    width: bar_width,
+                    x: i as f32 * bar_width + bar_padding / 2.0,
+                    y: bounds.height - bottom_margin - bar_height,
+                    width: actual_bar_width,
                     height: bar_height,
                 };
 
                 // Determine bar color
                 let bar_color = match &self.bar_color_scheme {
                     BarColorScheme::Single(color) => *color,
-                    BarColorScheme::Function(color_fn) => color_fn(value, average, theme),
+                    BarColorScheme::Function(color_fn) => {
+                        let params = BarColorParams {
+                            index: i,
+                            value,
+                            average,
+                            theme,
+                        };
+                        
+                        // For zero values, use a special muted color unless overridden
+                        if value == 0.0 {
+                            // Let the function decide, but provide a fallback
+                            let function_color = color_fn(&params);
+                            // If it's the default performance color, use muted instead
+                            if function_color == Color::from_rgb(0.2, 0.8, 0.3) || 
+                               function_color == Color::from_rgb(0.9, 0.3, 0.3) || 
+                               function_color == Color::from_rgb(1.0, 0.7, 0.2) {
+                                Color::from_rgb(0.7, 0.7, 0.7)
+                            } else {
+                                function_color
+                            }
+                        } else {
+                            color_fn(&params)
+                        }
+                    },
                 };
 
                 frame.fill_rectangle(
@@ -338,11 +395,29 @@ where
                     self.bar_color.unwrap_or(bar_color),
                 );
 
+                // Draw bar index labels at bottom
+                if self.show_labels {
+                    frame.fill_text(canvas::Text {
+                        content: format!("{}", i),
+                        position: Point::new(
+                            i as f32 * bar_width + bar_width / 2.0,
+                            bounds.height - 5.0
+                        ),
+                        color: palette.background.base.text.scale_alpha(0.6),
+                        size: Pixels(10.0),
+                        font: Font::MONOSPACE,
+                        align_x: Center.into(),
+                        align_y: Bottom,
+                        ..canvas::Text::default()
+                    });
+                }
+
                 // Highlight hovered bar
                 let bar_overlay = Rectangle {
+                    x: i as f32 * bar_width,
                     y: 0.0,
-                    height: bounds.height,
-                    ..bar
+                    width: bar_width,
+                    height: bounds.height - bottom_margin,
                 };
 
                 match cursor {
@@ -355,12 +430,21 @@ where
 
                         if self.show_labels {
                             let fits = cursor_pos.y >= 10.0;
+                            let label_y = if value == 0.0 {
+                                bounds.height - bottom_margin - 15.0
+                            } else {
+                                cursor_pos.y
+                            };
 
                             frame.fill_text(canvas::Text {
-                                content: format!("{:.2}", value),
-                                position: cursor_pos,
+                                content: if value == 0.0 {
+                                    "0".to_string()
+                                } else {
+                                    format!("{:.1}", value)
+                                },
+                                position: Point::new(cursor_pos.x, label_y),
                                 color: palette.background.base.text,
-                                size: Pixels(10.0),
+                                size: Pixels(12.0),
                                 font: Font::MONOSPACE,
                                 align_x: Center.into(),
                                 align_y: if fits { Bottom } else { Top },
@@ -374,44 +458,67 @@ where
 
             // Draw grid lines if enabled
             if self.show_grid {
-                // Draw horizontal grid lines
+                // Draw horizontal grid lines in the chart area only
                 let grid_steps = 5;
                 for i in 0..=grid_steps {
-                    let y = bounds.height * (i as f32 / grid_steps as f32);
+                    let y = (bounds.height - bottom_margin) * (i as f32 / grid_steps as f32);
                     frame.fill_rectangle(
                         Point::new(0.0, y),
                         Size::new(bounds.width, 1.0),
                         palette.background.base.text.scale_alpha(0.1),
                     );
+                    
+                    // Add value labels on the left
+                    if self.show_labels {
+                        let grid_value = max_value * (1.0 - i as f64 / grid_steps as f64);
+                        frame.fill_text(canvas::Text {
+                            content: format!("{:.0}", grid_value),
+                            position: Point::new(5.0, y - 2.0),
+                            color: palette.background.base.text.scale_alpha(0.6),
+                            size: Pixels(10.0),
+                            font: Font::MONOSPACE,
+                            align_y: Bottom,
+                            ..canvas::Text::default()
+                        });
+                    }
                 }
 
+                // Draw a baseline at zero
+                let zero_y = bounds.height - bottom_margin;
+                frame.fill_rectangle(
+                    Point::new(0.0, zero_y),
+                    Size::new(bounds.width, 2.0),
+                    palette.background.base.text.scale_alpha(0.3),
+                );
+
                 // Draw vertical grid lines
-                let vertical_steps = (visible_bars / 10).max(1);
+                let vertical_steps = (visible_bars / 2).max(1).min(10);
                 for i in 0..=vertical_steps {
                     let x = bounds.width * (i as f32 / vertical_steps as f32);
                     frame.fill_rectangle(
                         Point::new(x, 0.0),
-                        Size::new(1.0, bounds.height),
+                        Size::new(1.0, bounds.height - bottom_margin),
                         palette.background.base.text.scale_alpha(0.1),
                     );
                 }
             }
 
             // Draw average line if labels are enabled
-            if self.show_labels {
-                let average_y = bounds.height - (average * pixels_per_unit as f64) as f32;
+            if self.show_labels && average > 0.0 {
+                let average_y = bounds.height - bottom_margin - (average * pixels_per_unit as f64) as f32;
                 frame.fill_rectangle(
                     Point::new(0.0, average_y),
-                    Size::new(bounds.width, 1.0),
-                    palette.background.base.text.scale_alpha(0.5),
+                    Size::new(bounds.width, 2.0),
+                    Color::from_rgb(0.0, 0.6, 1.0).scale_alpha(0.7),
                 );
 
                 frame.fill_text(canvas::Text {
-                    content: format!("Avg: {:.2}", average),
-                    position: Point::new(5.0, average_y - 2.0),
-                    color: palette.background.base.text,
+                    content: format!("Avg: {:.1}", average),
+                    position: Point::new(bounds.width - 5.0, average_y - 2.0),
+                    color: Color::from_rgb(0.0, 0.6, 1.0),
                     size: Pixels(12.0),
                     font: Font::MONOSPACE,
+                    align_x: Right.into(),
                     align_y: Bottom,
                     ..canvas::Text::default()
                 });

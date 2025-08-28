@@ -14,18 +14,28 @@ pub enum Interaction {
     ZoomChanged(Zoom),
 }
 
+/// Parameters passed to point color functions
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct PointColorParams<'a> {
+    pub index: usize,
+    pub value: f64,
+    pub average: f64,
+    pub theme: &'a Theme,
+}
+
 pub enum PointColorScheme {
     Single(Color),
-    Function(Box<dyn Fn(f64, f64, &Theme) -> Color + Send + Sync>),
+    Function(Box<dyn Fn(&PointColorParams) -> Color + Send + Sync>),
 }
 
 impl Default for PointColorScheme {
     fn default() -> Self {
         // Default performance-based color scheme
-        Self::Function(Box::new(|value, average, _theme| {
-            if value < average * 0.7 {
+        Self::Function(Box::new(|params| {
+            if params.value < params.average * 0.7 {
                 Color::from_rgb(0.2, 0.8, 0.3) // Green for good performance
-            } else if value > average * 1.3 {
+            } else if params.value > params.average * 1.3 {
                 Color::from_rgb(0.9, 0.3, 0.3) // Red for poor performance
             } else {
                 Color::from_rgb(1.0, 0.7, 0.2) // Orange for average performance
@@ -157,7 +167,7 @@ where
 
     pub fn point_color_fn<F>(mut self, color_fn: F) -> Self
     where
-        F: Fn(f64, f64, &Theme) -> Color + Send + Sync + 'static,
+        F: Fn(&PointColorParams) -> Color + Send + Sync + 'static,
     {
         self.point_color_scheme = PointColorScheme::Function(Box::new(color_fn));
         self
@@ -175,10 +185,10 @@ where
 
     /// Default performance-based color scheme (green for good, red for poor, orange for average)
     pub fn performance_colors(mut self) -> Self {
-        self.point_color_scheme = PointColorScheme::Function(Box::new(|value, average, _theme| {
-            if value < average * 0.7 {
+        self.point_color_scheme = PointColorScheme::Function(Box::new(|params| {
+            if params.value < params.average * 0.7 {
                 Color::from_rgb(0.2, 0.8, 0.3) // Green for good performance
-            } else if value > average * 1.3 {
+            } else if params.value > params.average * 1.3 {
                 Color::from_rgb(0.9, 0.3, 0.3) // Red for poor performance
             } else {
                 Color::from_rgb(1.0, 0.7, 0.2) // Orange for average performance
@@ -190,8 +200,8 @@ where
     /// Theme-aware color scheme that adapts to the current theme
     pub fn theme_colors(mut self) -> Self {
         self.point_color_scheme =
-            PointColorScheme::Function(Box::new(|_value, _average, theme| {
-                let palette = theme.extended_palette();
+            PointColorScheme::Function(Box::new(|params| {
+                let palette = params.theme.extended_palette();
                 palette.primary.base.color
             }));
         self
@@ -199,8 +209,8 @@ where
 
     /// Gradient color scheme from green to red based on value relative to average
     pub fn gradient_colors(mut self) -> Self {
-        self.point_color_scheme = PointColorScheme::Function(Box::new(|value, average, _theme| {
-            let ratio = (value / average).min(2.0).max(0.5); // Clamp between 0.5 and 2.0
+        self.point_color_scheme = PointColorScheme::Function(Box::new(|params| {
+            let ratio = (params.value / params.average).min(2.0).max(0.5); // Clamp between 0.5 and 2.0
             let normalized = ((ratio - 1.0) / 1.0).max(-1.0).min(1.0); // Convert to -1 to 1 range
 
             if normalized <= 0.0 {
@@ -211,6 +221,20 @@ where
                 // Yellow to red (poor performance)
                 let t = normalized as f32;
                 Color::from_rgb(1.0, 0.8 - t * 0.6, 0.2)
+            }
+        }));
+        self
+    }
+
+    /// Index-based color scheme: green for index < 6, yellow for index 6, red for index > 6
+    pub fn traffic_light_colors(mut self) -> Self {
+        self.point_color_scheme = PointColorScheme::Function(Box::new(|params| {
+            if params.index < 6 {
+                Color::from_rgb(0.2, 0.8, 0.3) // Green
+            } else if params.index == 6 {
+                Color::from_rgb(1.0, 0.9, 0.0) // Yellow
+            } else {
+                Color::from_rgb(0.9, 0.3, 0.3) // Red
             }
         }));
         self
@@ -697,7 +721,15 @@ where
             // Use the point color scheme to determine color
             let point_color = match &self.point_color_scheme {
                 PointColorScheme::Single(color) => *color,
-                PointColorScheme::Function(color_fn) => color_fn(*value, average, theme),
+                PointColorScheme::Function(color_fn) => {
+                    let params = PointColorParams {
+                        index: i,
+                        value: *value,
+                        average,
+                        theme,
+                    };
+                    color_fn(&params)
+                },
             };
 
             let base_radius = self.point_radius;
