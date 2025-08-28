@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" aria-label="Snowline logo" viewBox="0 0 480 160">
+  <defs>
+    <style>
+      :root{--ice:#7DB9D8; --text: #ffffffff}.mark-node{fill:#fff;stroke:var(--ice);stroke-width:10}
+    </style>
+  </defs>
+  <path fill="none" d="M0 0h480v160H0z"/>
+  <g transform="translate(16 16)">
+    <path d="m0 96 64-64 40 24 48-56" style="fill:none;stroke:var(--ice);stroke-width:10;stroke-linecap:round;stroke-linejoin:round"/>
+    <circle cy="96" r="8" class="mark-node"/>
+    <circle cx="64" cy="32" r="8" class="mark-node"/>
+    <circle cx="104" cy="56" r="8" class="mark-node"/>
+    <circle cx="152" r="8" class="mark-node"/>
+  </g>
+  <text x="200" y="108" style="font:700 64px/1.1 system-ui,-apple-system,&quot;Segoe UI&quot;,Roboto,Helvetica,Arial,&quot;Noto Sans&quot;,&quot;Apple Color Emoji&quot;,&quot;Segoe UI Emoji&quot;,sans-serif;fill:var(--text)">Snowline</text>
+</svg>

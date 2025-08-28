@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 216" role="img" aria-label="Snowline vertical logo">
+  <defs>
+    <style>
+      :root { --ice: #7DB9D8; --text: #2B2F33; }
+      .mark-line { fill: none; stroke: var(--ice); stroke-width: 10; stroke-linecap: round; stroke-linejoin: round; }
+      .mark-node { fill: #ffffff; stroke: var(--ice); stroke-width: 10; }
+      .word { font: 700 48px/1.1 system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif; fill: var(--text); text-anchor: middle; }
+    </style>
+  </defs>
+  <rect width="256" height="320" fill="none"/>
+  <!-- Centered icon block -->
+  <g transform="translate(48,16)">
+    <!-- 160x160 icon area -->
+    <path class="mark-line" d="M0 120 L70 48 L106 72 L160 16"/>
+    <circle class="mark-node" cx="0" cy="120" r="8"/>
+    <circle class="mark-node" cx="70" cy="48" r="8"/>
+    <circle class="mark-node" cx="106" cy="72" r="8"/>
+    <circle class="mark-node" cx="160" cy="16" r="8"/>
+  </g>
+  <!-- Wordmark centered under icon -->
+  <text class="word" x="128" y="200">Snowline</text>
+</svg>
