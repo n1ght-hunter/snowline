@@ -1,47 +1,21 @@
-use iced::mouse;
-use iced::widget::canvas;
-use iced::{Center, Color, Event, Font, Pixels, Point, Rectangle, Renderer, Right, Size, Theme};
-
 pub use canvas::Cache;
+use iced::{
+    Center, Color, Event, Font, Pixels, Point, Rectangle, Renderer, Right, Size, Theme, mouse,
+    widget::canvas,
+};
 
 // Re-export Zoom for backward compatibility
 pub use crate::zoom::Zoom;
+
+// Import and re-export color scheme types
+pub mod color_scheme;
+pub use color_scheme::{PointColorParams, PointColorScheme};
 
 #[derive(Debug, Clone)]
 pub enum Interaction {
     PointHovered(usize),
     PointClicked(usize),
     ZoomChanged(Zoom),
-}
-
-/// Parameters passed to point color functions
-#[derive(Debug, Clone)]
-#[non_exhaustive]
-pub struct PointColorParams<'a> {
-    pub index: usize,
-    pub value: f64,
-    pub average: f64,
-    pub theme: &'a Theme,
-}
-
-pub enum PointColorScheme {
-    Single(Color),
-    Function(Box<dyn Fn(&PointColorParams) -> Color + Send + Sync>),
-}
-
-impl Default for PointColorScheme {
-    fn default() -> Self {
-        // Default performance-based color scheme
-        Self::Function(Box::new(|params| {
-            if params.value < params.average * 0.7 {
-                Color::from_rgb(0.2, 0.8, 0.3) // Green for good performance
-            } else if params.value > params.average * 1.3 {
-                Color::from_rgb(0.9, 0.3, 0.3) // Red for poor performance
-            } else {
-                Color::from_rgb(1.0, 0.7, 0.2) // Orange for average performance
-            }
-        }))
-    }
 }
 
 #[allow(missing_debug_implementations)]
@@ -169,12 +143,12 @@ where
     where
         F: Fn(&PointColorParams) -> Color + Send + Sync + 'static,
     {
-        self.point_color_scheme = PointColorScheme::Function(Box::new(color_fn));
+        self.point_color_scheme = PointColorScheme::new_function(color_fn);
         self
     }
 
     pub fn single_point_color(mut self, color: Color) -> Self {
-        self.point_color_scheme = PointColorScheme::Single(color);
+        self.point_color_scheme = PointColorScheme::new_single(color);
         self
     }
 
@@ -185,58 +159,25 @@ where
 
     /// Default performance-based color scheme (green for good, red for poor, orange for average)
     pub fn performance_colors(mut self) -> Self {
-        self.point_color_scheme = PointColorScheme::Function(Box::new(|params| {
-            if params.value < params.average * 0.7 {
-                Color::from_rgb(0.2, 0.8, 0.3) // Green for good performance
-            } else if params.value > params.average * 1.3 {
-                Color::from_rgb(0.9, 0.3, 0.3) // Red for poor performance
-            } else {
-                Color::from_rgb(1.0, 0.7, 0.2) // Orange for average performance
-            }
-        }));
+        self.point_color_scheme = PointColorScheme::performance();
         self
     }
 
     /// Theme-aware color scheme that adapts to the current theme
     pub fn theme_colors(mut self) -> Self {
-        self.point_color_scheme =
-            PointColorScheme::Function(Box::new(|params| {
-                let palette = params.theme.extended_palette();
-                palette.primary.base.color
-            }));
+        self.point_color_scheme = PointColorScheme::theme_colors();
         self
     }
 
     /// Gradient color scheme from green to red based on value relative to average
     pub fn gradient_colors(mut self) -> Self {
-        self.point_color_scheme = PointColorScheme::Function(Box::new(|params| {
-            let ratio = (params.value / params.average).min(2.0).max(0.5); // Clamp between 0.5 and 2.0
-            let normalized = ((ratio - 1.0) / 1.0).max(-1.0).min(1.0); // Convert to -1 to 1 range
-
-            if normalized <= 0.0 {
-                // Green to yellow (good performance)
-                let t = (-normalized) as f32;
-                Color::from_rgb(0.2 + t * 0.8, 0.8, 0.2)
-            } else {
-                // Yellow to red (poor performance)
-                let t = normalized as f32;
-                Color::from_rgb(1.0, 0.8 - t * 0.6, 0.2)
-            }
-        }));
+        self.point_color_scheme = PointColorScheme::gradient();
         self
     }
 
     /// Index-based color scheme: green for index < 6, yellow for index 6, red for index > 6
     pub fn traffic_light_colors(mut self) -> Self {
-        self.point_color_scheme = PointColorScheme::Function(Box::new(|params| {
-            if params.index < 6 {
-                Color::from_rgb(0.2, 0.8, 0.3) // Green
-            } else if params.index == 6 {
-                Color::from_rgb(1.0, 0.9, 0.0) // Yellow
-            } else {
-                Color::from_rgb(0.9, 0.3, 0.3) // Red
-            }
-        }));
+        self.point_color_scheme = PointColorScheme::traffic_light();
         self
     }
 }
@@ -327,7 +268,9 @@ where
             }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 if let Some(cursor_position) = cursor.position_in(bounds) {
-                    if let Some(point_index) = self.find_nearest_point(cursor_position, bounds, state) {
+                    if let Some(point_index) =
+                        self.find_nearest_point(cursor_position, bounds, state)
+                    {
                         return Some(canvas::Action::publish(Interaction::PointClicked(
                             point_index,
                         )));
@@ -344,9 +287,7 @@ where
                             let new_zoom = if y.is_sign_positive() {
                                 state.zoom.increment_with_limits(self.zoom_max)
                             } else {
-                                state
-                                    .zoom
-                                    .decrement_with_limits(self.zoom_min)
+                                state.zoom.decrement_with_limits(self.zoom_min)
                             };
 
                             if new_zoom != state.zoom {
@@ -505,13 +446,18 @@ where
     I: Iterator<Item = T> + Clone + 'a,
     T: Copy + Into<f64>,
 {
-    fn find_nearest_point(&self, cursor_pos: Point, bounds: Rectangle, state: &LineGraphState) -> Option<usize> {
+    fn find_nearest_point(
+        &self,
+        cursor_pos: Point,
+        bounds: Rectangle,
+        state: &LineGraphState,
+    ) -> Option<usize> {
         let padding = 40.0;
         let chart_width = bounds.width - 2.0 * padding;
 
         // We need to use the same logic as the draw method to calculate visible datapoints
         let all_datapoints: Vec<_> = self.datapoints.clone().enumerate().collect();
-        
+
         if all_datapoints.is_empty() {
             return None;
         }
@@ -520,7 +466,7 @@ where
         let effective_zoom = self.effective_zoom(state);
         let zoom_factor = effective_zoom.value();
         let base_points = self.base_points;
-        
+
         let max_visible_points = if zoom_factor >= 1.0 {
             (base_points / zoom_factor).max(5.0) as usize
         } else if zoom_factor <= self.zoom_min {
@@ -546,47 +492,48 @@ where
         // Find the nearest point using the same coordinate calculation as drawing
         let mut closest_index = None;
         let mut closest_distance = f32::INFINITY;
-        
+
         // We also need the y-coordinates to calculate true distance
         let values: Vec<f64> = visible_datapoints
             .iter()
             .map(|(_, v)| (self.to_float)(*v))
             .collect();
-            
+
         if values.is_empty() {
             return None;
         }
-        
+
         let min_value = values.iter().fold(f64::INFINITY, |a, &b| a.min(b));
         let max_value = values.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
         let value_range = max_value - min_value;
-        
+
         if value_range == 0.0 {
             return None;
         }
-        
+
         let chart_height = bounds.height - 2.0 * padding;
-        
+
         for (i, (_original_index, _)) in visible_datapoints.iter().enumerate() {
-            let x = padding + (i as f32 / (visible_datapoints.len() - 1).max(1) as f32) * chart_width;
-            
+            let x =
+                padding + (i as f32 / (visible_datapoints.len() - 1).max(1) as f32) * chart_width;
+
             // Calculate y coordinate using same logic as drawing
             let value_f64 = values[i];
             let normalized_value = (value_f64 - min_value) / value_range;
             let y = padding + chart_height - (normalized_value as f32 * chart_height);
-            
+
             // Calculate distance to the actual point (both x and y)
             let dx = cursor_pos.x - x;
             let dy = cursor_pos.y - y;
             let distance = (dx * dx + dy * dy).sqrt();
-            
+
             // Use a slightly larger radius for better usability
             if distance <= 20.0 && distance < closest_distance {
                 closest_distance = distance;
                 closest_index = Some(i);
             }
         }
-        
+
         closest_index
     }
 
@@ -719,17 +666,14 @@ where
             let is_hovered = *state == Some(i);
 
             // Use the point color scheme to determine color
-            let point_color = match &self.point_color_scheme {
-                PointColorScheme::Single(color) => *color,
-                PointColorScheme::Function(color_fn) => {
-                    let params = PointColorParams {
-                        index: i,
-                        value: *value,
-                        average,
-                        theme,
-                    };
-                    color_fn(&params)
-                },
+            let point_color = {
+                let params = PointColorParams {
+                    index: i,
+                    value: *value,
+                    average,
+                    theme,
+                };
+                self.point_color_scheme.call(&params)
             };
 
             let base_radius = self.point_radius;

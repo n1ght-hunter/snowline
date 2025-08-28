@@ -1,49 +1,21 @@
-use iced::mouse;
-use iced::widget::canvas;
-use iced::{
-    Bottom, Center, Color, Event, Font, Pixels, Point, Rectangle, Renderer, Right, Size, Theme, Top,
-};
-
 pub use canvas::Cache;
+use iced::{
+    Bottom, Center, Color, Event, Font, Pixels, Point, Rectangle, Renderer, Right, Size, Theme,
+    Top, mouse, widget::canvas,
+};
 
 // Re-export Zoom for backward compatibility
 pub use crate::zoom::Zoom;
+
+// Import and re-export color scheme types
+pub mod color_scheme;
+pub use color_scheme::{BarColorParams, BarColorScheme};
 
 #[derive(Debug, Clone)]
 pub enum Interaction {
     BarHovered(usize),
     BarClicked(usize),
     ZoomChanged(Zoom),
-}
-
-/// Parameters passed to bar color functions
-#[derive(Debug, Clone)]
-#[non_exhaustive]
-pub struct BarColorParams<'a> {
-    pub index: usize,
-    pub value: f64,
-    pub average: f64,
-    pub theme: &'a Theme,
-}
-
-pub enum BarColorScheme {
-    Single(Color),
-    Function(Box<dyn Fn(&BarColorParams) -> Color + Send + Sync>),
-}
-
-impl Default for BarColorScheme {
-    fn default() -> Self {
-        // Default performance-based color scheme
-        Self::Function(Box::new(|params| {
-            if params.value < params.average * 0.7 {
-                Color::from_rgb(0.2, 0.8, 0.3) // Green for good performance
-            } else if params.value > params.average * 1.3 {
-                Color::from_rgb(0.9, 0.3, 0.3) // Red for poor performance
-            } else {
-                Color::from_rgb(1.0, 0.7, 0.2) // Orange for average performance
-            }
-        }))
-    }
 }
 
 #[allow(missing_debug_implementations)]
@@ -151,12 +123,12 @@ where
     where
         F: Fn(&BarColorParams) -> Color + Send + Sync + 'static,
     {
-        self.bar_color_scheme = BarColorScheme::Function(Box::new(color_fn));
+        self.bar_color_scheme = BarColorScheme::new_function(color_fn);
         self
     }
 
     pub fn single_bar_color(mut self, color: Color) -> Self {
-        self.bar_color_scheme = BarColorScheme::Single(color);
+        self.bar_color_scheme = BarColorScheme::new_single(color);
         self
     }
 
@@ -167,39 +139,19 @@ where
 
     /// Default performance-based color scheme (green for good, red for poor, orange for average)
     pub fn performance_colors(mut self) -> Self {
-        self.bar_color_scheme = BarColorScheme::Function(Box::new(|params| {
-            if params.value < params.average * 0.7 {
-                Color::from_rgb(0.2, 0.8, 0.3) // Green for good performance
-            } else if params.value > params.average * 1.3 {
-                Color::from_rgb(0.9, 0.3, 0.3) // Red for poor performance
-            } else {
-                Color::from_rgb(1.0, 0.7, 0.2) // Orange for average performance
-            }
-        }));
+        self.bar_color_scheme = BarColorScheme::performance();
         self
     }
 
     /// Theme-aware color scheme that adapts to the current theme
     pub fn theme_colors(mut self) -> Self {
-        self.bar_color_scheme =
-            BarColorScheme::Function(Box::new(|params| {
-                let palette = params.theme.extended_palette();
-                palette.primary.base.color
-            }));
+        self.bar_color_scheme = BarColorScheme::theme_colors();
         self
     }
 
     /// Index-based color scheme: green for index < 6, yellow for index 6, red for index > 6
     pub fn traffic_light_colors(mut self) -> Self {
-        self.bar_color_scheme = BarColorScheme::Function(Box::new(|params| {
-            if params.index < 6 {
-                Color::from_rgb(0.2, 0.8, 0.3) // Green
-            } else if params.index == 6 {
-                Color::from_rgb(1.0, 0.9, 0.0) // Yellow
-            } else {
-                Color::from_rgb(0.9, 0.3, 0.3) // Red
-            }
-        }));
+        self.bar_color_scheme = BarColorScheme::traffic_light();
         self
     }
 
@@ -252,13 +204,15 @@ where
                     let effective_zoom = self.effective_zoom(state);
                     let visible_bars = (self.base_bars * effective_zoom.value()) as usize;
                     let bar_width = bounds.width / visible_bars as f32;
-                    
+
                     let bar_index = (cursor_position.x / bar_width) as usize;
-                    
+
                     if bar_index < visible_bars {
                         if state.hovered_bar != Some(bar_index) {
                             state.hovered_bar = Some(bar_index);
-                            return Some(canvas::Action::publish(Interaction::BarHovered(bar_index)));
+                            return Some(canvas::Action::publish(Interaction::BarHovered(
+                                bar_index,
+                            )));
                         }
                     } else if state.hovered_bar.is_some() {
                         state.hovered_bar = None;
@@ -278,15 +232,12 @@ where
             Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
                 if cursor.is_over(bounds) {
                     let new_zoom = match delta {
-                        mouse::ScrollDelta::Lines { y, .. } | mouse::ScrollDelta::Pixels { y, .. } => {
+                        mouse::ScrollDelta::Lines { y, .. }
+                        | mouse::ScrollDelta::Pixels { y, .. } => {
                             if *y > 0.0 {
-                                state
-                                    .zoom
-                                    .increment_with_limits(self.zoom_max)
+                                state.zoom.increment_with_limits(self.zoom_max)
                             } else {
-                                state
-                                    .zoom
-                                    .decrement_with_limits(self.zoom_min)
+                                state.zoom.decrement_with_limits(self.zoom_min)
                             }
                         }
                     };
@@ -327,7 +278,10 @@ where
             }
 
             // Calculate average for color scheme
-            let values: Vec<f64> = datapoints.iter().map(|(_, v)| (self.to_float)(*v)).collect();
+            let values: Vec<f64> = datapoints
+                .iter()
+                .map(|(_, v)| (self.to_float)(*v))
+                .collect();
             let average = values.iter().sum::<f64>() / values.len() as f64;
 
             // Find max value for scaling
@@ -342,9 +296,11 @@ where
             let pixels_per_unit = available_height / max_value as f32;
 
             // Draw bars
-            for (i, (_original_index, datapoint)) in datapoints.iter().take(visible_bars).enumerate() {
+            for (i, (_original_index, datapoint)) in
+                datapoints.iter().take(visible_bars).enumerate()
+            {
                 let value = (self.to_float)(*datapoint);
-                
+
                 // Minimum bar height for zero values to be visible
                 let min_bar_height = if value == 0.0 { 3.0 } else { 0.0 };
                 let bar_height = ((value * pixels_per_unit as f64) as f32).max(min_bar_height);
@@ -361,32 +317,30 @@ where
                 };
 
                 // Determine bar color
-                let bar_color = match &self.bar_color_scheme {
-                    BarColorScheme::Single(color) => *color,
-                    BarColorScheme::Function(color_fn) => {
-                        let params = BarColorParams {
-                            index: i,
-                            value,
-                            average,
-                            theme,
-                        };
-                        
-                        // For zero values, use a special muted color unless overridden
-                        if value == 0.0 {
-                            // Let the function decide, but provide a fallback
-                            let function_color = color_fn(&params);
-                            // If it's the default performance color, use muted instead
-                            if function_color == Color::from_rgb(0.2, 0.8, 0.3) || 
-                               function_color == Color::from_rgb(0.9, 0.3, 0.3) || 
-                               function_color == Color::from_rgb(1.0, 0.7, 0.2) {
-                                Color::from_rgb(0.7, 0.7, 0.7)
-                            } else {
-                                function_color
-                            }
+                let bar_color = {
+                    let params = BarColorParams {
+                        index: i,
+                        value,
+                        average,
+                        theme,
+                    };
+
+                    // For zero values, use a special muted color unless overridden
+                    if value == 0.0 {
+                        // Let the function decide, but provide a fallback
+                        let function_color = self.bar_color_scheme.call(&params);
+                        // If it's the default performance color, use muted instead
+                        if function_color == Color::from_rgb(0.2, 0.8, 0.3)
+                            || function_color == Color::from_rgb(0.9, 0.3, 0.3)
+                            || function_color == Color::from_rgb(1.0, 0.7, 0.2)
+                        {
+                            Color::from_rgb(0.7, 0.7, 0.7)
                         } else {
-                            color_fn(&params)
+                            function_color
                         }
-                    },
+                    } else {
+                        self.bar_color_scheme.call(&params)
+                    }
                 };
 
                 frame.fill_rectangle(
@@ -401,7 +355,7 @@ where
                         content: format!("{}", i),
                         position: Point::new(
                             i as f32 * bar_width + bar_width / 2.0,
-                            bounds.height - 5.0
+                            bounds.height - 5.0,
                         ),
                         color: palette.background.base.text.scale_alpha(0.6),
                         size: Pixels(10.0),
@@ -467,7 +421,7 @@ where
                         Size::new(bounds.width, 1.0),
                         palette.background.base.text.scale_alpha(0.1),
                     );
-                    
+
                     // Add value labels on the left
                     if self.show_labels {
                         let grid_value = max_value * (1.0 - i as f64 / grid_steps as f64);
@@ -505,7 +459,8 @@ where
 
             // Draw average line if labels are enabled
             if self.show_labels && average > 0.0 {
-                let average_y = bounds.height - bottom_margin - (average * pixels_per_unit as f64) as f32;
+                let average_y =
+                    bounds.height - bottom_margin - (average * pixels_per_unit as f64) as f32;
                 frame.fill_rectangle(
                     Point::new(0.0, average_y),
                     Size::new(bounds.width, 2.0),

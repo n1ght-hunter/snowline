@@ -46,7 +46,7 @@ impl App {
                     .show_grid(true)
                     .show_labels(true)
                     .base_bars(50.0)
-                    .zoom_range(0.1, 5.0)
+                    .zoom_range(0.1, 5.0),
             )
             .width(Length::Fixed(650.0))
             .height(Length::Fixed(350.0)),
