@@ -1,8 +1,10 @@
+mod common;
+
 use iced::Length;
 use snowline::line_graph::LineGraph;
 
 fn main() {
-    iced::application(App::new, App::update, App::view)
+    common::base::application(App::new, App::update, App::view)
         .run()
         .unwrap();
 }
