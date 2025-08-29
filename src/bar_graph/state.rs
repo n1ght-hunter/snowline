@@ -1,6 +1,6 @@
 //! State management for bar graphs
 
-use crate::{zoom::Zoom, utils::ZoomableGraphState};
+use crate::{utils::ZoomableGraphState, zoom::Zoom};
 
 #[derive(Debug, Clone)]
 pub struct BarGraphState {

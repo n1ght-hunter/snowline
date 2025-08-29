@@ -12,11 +12,7 @@ pub trait ZoomableGraphState {
 }
 
 /// Helper methods for calculating visible data points based on zoom
-pub fn calculate_visible_range(
-    total_items: usize,
-    zoom: Zoom,
-    base_items: f32,
-) -> (usize, usize) {
+pub fn calculate_visible_range(total_items: usize, zoom: Zoom, base_items: f32) -> (usize, usize) {
     let visible_count = match zoom {
         Zoom::Full => total_items,
         Zoom::Value(zoom_factor) => {

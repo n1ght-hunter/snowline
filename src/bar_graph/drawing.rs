@@ -1,10 +1,9 @@
 //! Drawing utilities for bar graphs
 
-use iced::{
-    Bottom, Center, Color, Font, Pixels, Point, Rectangle, Right, Size, Theme, Top, 
-    widget::canvas,
-};
 use super::{BarGraph, color_scheme::BarColorParams};
+use iced::{
+    Bottom, Center, Color, Font, Pixels, Point, Rectangle, Right, Size, Theme, Top, widget::canvas,
+};
 
 impl<'a, I, T> BarGraph<'a, I, T>
 where

@@ -4,26 +4,25 @@
 
 pub mod bar_graph;
 pub mod line_graph;
-pub mod zoom;
 pub mod utils;
+pub mod zoom;
 
 pub mod prelude {
     pub use crate::{
         bar_graph::{
             BarGraph,
-            state::BarGraphState,
             color_scheme::{BarColorParams, BarColorScheme},
+            state::BarGraphState,
         },
         line_graph::{
             LineGraph,
-            state::LineGraphState,
             color_scheme::{PointColorParams, PointColorScheme},
+            state::LineGraphState,
+        },
+        utils::{
+            BarInteraction, GraphInteraction, GridConfig, LineInteraction, ZoomableGraphState,
+            calculate_visible_range, draw_average_line, draw_grid, draw_y_axis_labels,
         },
         zoom::Zoom,
-        utils::{
-            GraphInteraction, BarInteraction, LineInteraction,
-            GridConfig, draw_grid, draw_y_axis_labels, draw_average_line,
-            ZoomableGraphState, calculate_visible_range,
-        },
     };
 }

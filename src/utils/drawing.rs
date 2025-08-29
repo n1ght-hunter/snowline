@@ -1,8 +1,6 @@
 //! Shared drawing utilities for all graph types
 
-use iced::{
-    Color, Font, Pixels, Point, Size, Theme, widget::canvas,
-};
+use iced::{Color, Font, Pixels, Point, Size, Theme, widget::canvas};
 
 /// Common grid drawing functionality
 pub struct GridConfig {
@@ -50,8 +48,8 @@ pub fn draw_grid(
 
         frame.stroke(
             &canvas::Path::line(
-                Point::new(config.padding, y), 
-                Point::new(config.padding + config.chart_width, y)
+                Point::new(config.padding, y),
+                Point::new(config.padding + config.chart_width, y),
             ),
             canvas::Stroke::default()
                 .with_color(color)
@@ -189,9 +187,7 @@ pub fn draw_average_line(
 
         frame.stroke(
             &canvas::Path::line(Point::new(start_x, avg_y), Point::new(end_x, avg_y)),
-            canvas::Stroke::default()
-                .with_color(color)
-                .with_width(3.0),
+            canvas::Stroke::default().with_color(color).with_width(3.0),
         );
     }
 }

@@ -4,7 +4,10 @@ use iced::{
     widget::canvas,
 };
 
-use crate::{zoom::Zoom, utils::{draw_grid, GridConfig}};
+use crate::{
+    utils::{GridConfig, draw_grid},
+    zoom::Zoom,
+};
 
 // Make modules public for prelude access, but don't re-export types here
 pub mod color_scheme;
