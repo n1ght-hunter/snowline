@@ -4,18 +4,17 @@ use iced::{
     widget::canvas,
 };
 
-use crate::zoom::Zoom;
+use crate::{zoom::Zoom, utils::{draw_grid, GridConfig}};
 
-// Make module public for prelude access, but don't re-export types here
+// Make modules public for prelude access, but don't re-export types here
 pub mod color_scheme;
 use color_scheme::{PointColorParams, PointColorScheme};
 
-#[derive(Debug, Clone)]
-pub enum Interaction {
-    PointHovered(usize),
-    PointClicked(usize),
-    ZoomChanged(Zoom),
-}
+pub mod state;
+use state::LineGraphState;
+
+// Re-export the shared interaction type for backward compatibility
+pub use crate::utils::LineInteraction as Interaction;
 
 #[allow(missing_debug_implementations)]
 pub struct LineGraph<'a, I, T>
@@ -178,29 +177,6 @@ where
     pub fn traffic_light_colors(mut self) -> Self {
         self.point_color_scheme = PointColorScheme::traffic_light();
         self
-    }
-}
-#[derive(Debug, Clone)]
-pub struct LineGraphState {
-    pub zoom: Zoom,
-    pub hovered_point: Option<usize>,
-}
-
-impl LineGraphState {
-    pub fn new(initial_zoom: Zoom) -> Self {
-        Self {
-            zoom: initial_zoom,
-            hovered_point: None,
-        }
-    }
-}
-
-impl Default for LineGraphState {
-    fn default() -> Self {
-        Self {
-            zoom: Zoom::default(),
-            hovered_point: None,
-        }
     }
 }
 
@@ -566,59 +542,15 @@ where
         chart_height: f32,
         palette: &iced::theme::palette::Extended,
     ) {
-        let major_grid_color = palette.background.base.text.scale_alpha(0.15);
-        let minor_grid_color = palette.background.base.text.scale_alpha(0.05);
-
-        // Draw minor horizontal grid lines (10 lines)
-        for i in 0..=10 {
-            let y = padding + (i as f32 / 10.0) * chart_height;
-            let color = if i % 2 == 0 {
-                major_grid_color
-            } else {
-                minor_grid_color
-            };
-            let width = if i % 2 == 0 { 0.8 } else { 0.4 };
-
-            frame.stroke(
-                &canvas::Path::line(Point::new(padding, y), Point::new(padding + chart_width, y)),
-                canvas::Stroke::default()
-                    .with_color(color)
-                    .with_width(width),
-            );
-        }
-
-        // Draw minor vertical grid lines (10 lines)
-        for i in 0..=10 {
-            let x = padding + (i as f32 / 10.0) * chart_width;
-            let color = if i % 2 == 0 {
-                major_grid_color
-            } else {
-                minor_grid_color
-            };
-            let width = if i % 2 == 0 { 0.8 } else { 0.4 };
-
-            frame.stroke(
-                &canvas::Path::line(
-                    Point::new(x, padding),
-                    Point::new(x, padding + chart_height),
-                ),
-                canvas::Stroke::default()
-                    .with_color(color)
-                    .with_width(width),
-            );
-        }
-
-        // Draw chart border
-        let border_color = palette.background.base.text.scale_alpha(0.3);
-        frame.stroke(
-            &canvas::Path::rectangle(
-                Point::new(padding, padding),
-                Size::new(chart_width, chart_height),
-            ),
-            canvas::Stroke::default()
-                .with_color(border_color)
-                .with_width(2.0),
-        );
+        let config = GridConfig {
+            padding,
+            chart_width,
+            chart_height,
+            horizontal_lines: 10,
+            vertical_lines: 10,
+            ..GridConfig::default()
+        };
+        draw_grid(frame, &config, palette);
     }
 
     fn draw_line(

@@ -1,6 +1,6 @@
 //! State management for bar graphs
 
-use crate::zoom::Zoom;
+use crate::{zoom::Zoom, utils::ZoomableGraphState};
 
 #[derive(Debug, Clone)]
 pub struct BarGraphState {
@@ -23,5 +23,15 @@ impl Default for BarGraphState {
             zoom: Zoom::default(),
             hovered_bar: None,
         }
+    }
+}
+
+impl ZoomableGraphState for BarGraphState {
+    fn zoom(&self) -> Zoom {
+        self.zoom
+    }
+
+    fn set_zoom(&mut self, zoom: Zoom) {
+        self.zoom = zoom;
     }
 }

@@ -13,12 +13,8 @@ use state::BarGraphState;
 // Import drawing utilities
 mod drawing;
 
-#[derive(Debug, Clone)]
-pub enum Interaction {
-    BarHovered(usize),
-    BarClicked(usize),
-    ZoomChanged(Zoom),
-}
+// Re-export the shared interaction type for backward compatibility
+pub use crate::utils::BarInteraction as Interaction;
 
 #[allow(missing_debug_implementations)]
 pub struct BarGraph<'a, I, T>
