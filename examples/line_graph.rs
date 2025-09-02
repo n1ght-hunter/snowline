@@ -21,7 +21,9 @@ impl App {
     fn new() -> Self {
         Self {
             line_graph_cache: iced::widget::canvas::Cache::new(),
-            data: (0..1000).map(|_| rand::random_range(0.0..=100.0)).collect(),
+            data: (0..10)
+                .flat_map(|n| (0..10).map(move |_| rand::random_range((1.0 * n as f32)..=(10.0 * n as f32))))
+                .collect(),
         }
     }
 
@@ -44,7 +46,7 @@ impl App {
                     .show_points(true)
                     .point_radius(4.0)
                     .line_width(2.5)
-                    .performance_colors()
+                    .point_color_scheme(snowline::prelude::PointColorScheme::performance())
                     .show_grid(true)
                     .show_labels(true)
                     .base_points(100.0)

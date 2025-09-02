@@ -173,30 +173,6 @@ where
         self.point_color_scheme = scheme;
         self
     }
-
-    /// Default performance-based color scheme (green for good, red for poor, orange for average)
-    pub fn performance_colors(mut self) -> Self {
-        self.point_color_scheme = PointColorScheme::performance();
-        self
-    }
-
-    /// Theme-aware color scheme that adapts to the current theme
-    pub fn theme_colors(mut self) -> Self {
-        self.point_color_scheme = PointColorScheme::theme_colors();
-        self
-    }
-
-    /// Gradient color scheme from green to red based on value relative to average
-    pub fn gradient_colors(mut self) -> Self {
-        self.point_color_scheme = PointColorScheme::gradient();
-        self
-    }
-
-    /// Index-based color scheme: green for index < 6, yellow for index 6, red for index > 6
-    pub fn traffic_light_colors(mut self) -> Self {
-        self.point_color_scheme = PointColorScheme::traffic_light();
-        self
-    }
 }
 
 // Helper methods for LineGraph

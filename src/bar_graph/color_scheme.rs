@@ -22,8 +22,10 @@ pub enum BarColorScheme {
 
 impl BarColorScheme {
     /// Call the color scheme to get a color for the given parameters
+    /// The returned color is adjusted based on value vs. average so all
+    /// bars respond to data magnitude consistently.
     pub fn call(&self, params: &BarColorParams) -> Color {
-        match self {
+        let base = match self {
             BarColorScheme::Single(color) => *color,
             BarColorScheme::Palette(colors) => {
                 if colors.is_empty() {
@@ -34,7 +36,9 @@ impl BarColorScheme {
                 }
             }
             BarColorScheme::Function(function) => function(params),
-        }
+        };
+
+        adjust_color_by_deviation(base, params)
     }
 
     /// Create a new function-based color scheme
@@ -76,22 +80,6 @@ impl BarColorScheme {
         })
     }
 
-    /// Gradient color scheme from green to red based on value:average
-    pub fn gradient() -> Self {
-        Self::new_function(|params| {
-            let ratio = (params.value / params.average).clamp(0.5, 2.0);
-            let normalized = ((ratio - 1.0) / 1.0).clamp(-1.0, 1.0);
-
-            if normalized <= 0.0 {
-                let t = (-normalized) as f32;
-                Color::from_rgb(0.2 + t * 0.8, 0.8, 0.2)
-            } else {
-                let t = normalized as f32;
-                Color::from_rgb(1.0, 0.8 - t * 0.6, 0.2)
-            }
-        })
-    }
-
     /// Index-based traffic light colors
     pub fn traffic_light() -> Self {
         Self::new_function(|params| {
@@ -122,5 +110,45 @@ impl Clone for BarColorScheme {
                 Self::default()
             }
         }
+    }
+}
+
+// --- helpers ---
+
+fn mix(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
+}
+
+fn mix_color(a: Color, b: Color, t: f32) -> Color {
+    Color::from_rgba(
+        mix(a.r, b.r, t),
+        mix(a.g, b.g, t),
+        mix(a.b, b.b, t),
+        mix(a.a, b.a, t),
+    )
+}
+
+/// Adjust a base color toward green when below average and toward red
+/// when above average. The strength is proportional to deviation.
+fn adjust_color_by_deviation(base: Color, params: &BarColorParams) -> Color {
+    if params.average <= 0.0 || !params.value.is_finite() || !params.average.is_finite() {
+        return base;
+    }
+
+    let ratio = (params.value / params.average).clamp(0.5, 2.0);
+    let normalized = (ratio - 1.0).clamp(-1.0, 1.0) as f32; // [-1.0, 1.0]
+
+    // Targets: green for below average, red for above average
+    let below_target = Color::from_rgb(0.2, 0.8, 0.3);
+    let above_target = Color::from_rgb(0.9, 0.3, 0.3);
+
+    if normalized < 0.0 {
+        let t = -normalized; // 0..1
+        mix_color(base, below_target, t)
+    } else if normalized > 0.0 {
+        let t = normalized; // 0..1
+        mix_color(base, above_target, t)
+    } else {
+        base
     }
 }

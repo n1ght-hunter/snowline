@@ -44,12 +44,13 @@ impl PointColorScheme {
     /// Default performance-based color scheme
     pub fn performance() -> Self {
         Self::new_function(|params| {
+            let pattern = params.theme.extended_palette();
             if params.value < params.average * 0.7 {
-                Color::from_rgb(0.2, 0.8, 0.3) // Green for good performance
+                pattern.success.base.color 
             } else if params.value > params.average * 1.3 {
-                Color::from_rgb(0.9, 0.3, 0.3) // Red for poor performance
+                pattern.danger.base.color
             } else {
-                Color::from_rgb(1.0, 0.7, 0.2) // Orange for average performance
+                pattern.warning.base.color
             }
         })
     }
@@ -59,22 +60,6 @@ impl PointColorScheme {
         Self::new_function(|params| {
             let palette = params.theme.extended_palette();
             palette.primary.base.color
-        })
-    }
-
-    /// Gradient color scheme from green to red
-    pub fn gradient() -> Self {
-        Self::new_function(|params| {
-            let ratio = (params.value / params.average).clamp(0.5, 2.0);
-            let normalized = ((ratio - 1.0) / 1.0).clamp(-1.0, 1.0);
-
-            if normalized <= 0.0 {
-                let t = (-normalized) as f32;
-                Color::from_rgb(0.2 + t * 0.8, 0.8, 0.2)
-            } else {
-                let t = normalized as f32;
-                Color::from_rgb(1.0, 0.8 - t * 0.6, 0.2)
-            }
         })
     }
 

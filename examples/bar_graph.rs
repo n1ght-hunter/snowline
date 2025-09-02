@@ -1,4 +1,4 @@
-use iced::{Color, Length};
+use iced::Length;
 use snowline::bar_graph::{self, BarGraph};
 
 fn main() {
@@ -21,7 +21,11 @@ impl App {
     fn new() -> Self {
         Self {
             bar_graph_cache: iced::widget::canvas::Cache::new(),
-            data: (0..1000).map(|_| rand::random_range(0.0..=100.0)).collect(),
+            data: (0..10)
+                .flat_map(|n| {
+                    (0..10).map(move |_| rand::random_range((1.0 * n as f32)..=(10.0 * n as f32)))
+                })
+                .collect(),
         }
     }
 
@@ -42,11 +46,7 @@ impl App {
             iced::widget::canvas(
                 BarGraph::new(data_iter, &self.bar_graph_cache)
                     .bar_width(8.0)
-                    .bar_color_scheme(bar_graph::color_scheme::BarColorScheme::palette(vec![
-                        Color::from_rgb(0.2, 0.6, 1.0),
-                        Color::from_rgb(1.0, 0.6, 0.2),
-                        Color::from_rgb(0.3, 0.9, 0.4),
-                    ]))
+                    .bar_color_scheme(bar_graph::color_scheme::BarColorScheme::performance())
                     .show_grid(true)
                     .show_labels(true)
                     .bins(10)
