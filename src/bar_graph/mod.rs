@@ -1,8 +1,6 @@
 pub use canvas::Cache;
 use iced::{Color, Event, Rectangle, Renderer, Theme, mouse, widget::canvas};
 
-use crate::zoom::Zoom;
-
 // Make modules public for prelude access, but don't re-export types here
 pub mod color_scheme;
 use color_scheme::{BarColorParams, BarColorScheme};
@@ -15,9 +13,17 @@ mod drawing;
 
 // Re-export the shared interaction type for backward compatibility
 pub use crate::utils::BarInteraction as Interaction;
+use crate::utils::{DefaultMap, ValueMapper};
+
+#[derive(Debug, Clone, Copy)]
+pub enum BinAggregator {
+    Average,
+    Sum,
+    Max,
+}
 
 #[allow(missing_debug_implementations)]
-pub struct BarGraph<'a, I, T>
+pub struct BarGraph<'a, I, T, M = DefaultMap>
 where
     I: Iterator<Item = T> + Clone + 'a,
 {
@@ -27,21 +33,18 @@ where
     pub bar_width: f32,
     pub show_grid: bool,
     pub show_labels: bool,
-    pub zoom: Zoom,
-    pub base_bars: f32,
-    pub zoom_min: f32,
-    pub zoom_max: f32,
+    pub base_bars: f32, // Target number of bars (bins)
     pub bar_color_scheme: BarColorScheme,
-    pub to_float: fn(T) -> f64,
-    pub external_zoom: Option<Zoom>, // Optional external zoom override
+    pub mapper: M,
+    pub bin_aggregator: BinAggregator,
 }
 
-impl<'a, I, T> BarGraph<'a, I, T>
+impl<'a, I, T, M> BarGraph<'a, I, T, M>
 where
     I: Iterator<Item = T> + Clone + 'a,
-    T: Copy + Into<f64>,
+    M: ValueMapper<T>,
 {
-    pub fn new(datapoints: I, cache: &'a canvas::Cache, to_float: fn(T) -> f64) -> Self {
+    pub fn with_mapper(datapoints: I, cache: &'a canvas::Cache, mapper: M) -> Self {
         Self {
             datapoints,
             cache,
@@ -49,31 +52,11 @@ where
             bar_width: 2.0,
             show_grid: true,
             show_labels: true,
-            zoom: Zoom::default(),
             base_bars: 50.0,
-            zoom_min: 0.1,
-            zoom_max: 10.0,
             bar_color_scheme: BarColorScheme::default(),
-            to_float,
-            external_zoom: None,
+            mapper,
+            bin_aggregator: BinAggregator::Average,
         }
-    }
-
-    /// Get the initial state for this BarGraph
-    pub fn initial_state(&self) -> BarGraphState {
-        BarGraphState::new(self.zoom)
-    }
-
-    /// Set external zoom (overrides internal state zoom)
-    pub fn external_zoom(mut self, zoom: Zoom) -> Self {
-        self.external_zoom = Some(zoom);
-        self
-    }
-
-    /// Clear external zoom (use internal state zoom)
-    pub fn use_internal_zoom(mut self) -> Self {
-        self.external_zoom = None;
-        self
     }
 
     pub fn bar_color(mut self, color: Color) -> Self {
@@ -101,19 +84,15 @@ where
         self
     }
 
-    pub fn zoom_range(mut self, min: f32, max: f32) -> Self {
-        self.zoom_min = min;
-        self.zoom_max = max;
+    /// Set exact number of bins (bars)
+    pub fn bins(mut self, count: usize) -> Self {
+        self.base_bars = (count as f32).max(1.0);
         self
     }
 
-    pub fn zoom_min(mut self, min: f32) -> Self {
-        self.zoom_min = min;
-        self
-    }
-
-    pub fn zoom_max(mut self, max: f32) -> Self {
-        self.zoom_max = max;
+    /// Choose how to aggregate values inside each bin
+    pub fn bin_aggregator(mut self, kind: BinAggregator) -> Self {
+        self.bin_aggregator = kind;
         self
     }
 
@@ -153,16 +132,38 @@ where
         self
     }
 
-    /// Get the effective zoom value (external zoom if set, otherwise state zoom)
-    fn effective_zoom(&self, state: &BarGraphState) -> Zoom {
-        self.external_zoom.unwrap_or(state.zoom)
+    fn desired_bins(&self, total_items: usize) -> usize {
+        let desired = self.base_bars.max(1.0) as usize;
+        desired.min(total_items.max(1))
     }
 }
 
-impl<'a, I, T> canvas::Program<Interaction> for BarGraph<'a, I, T>
+// Default constructor using Into<f64> without custom mapper
+impl<'a, I, T> BarGraph<'a, I, T, DefaultMap>
 where
     I: Iterator<Item = T> + Clone + 'a,
     T: Copy + Into<f64>,
+{
+    pub fn new(datapoints: I, cache: &'a canvas::Cache) -> Self {
+        Self {
+            datapoints,
+            cache,
+            bar_color: None,
+            bar_width: 2.0,
+            show_grid: true,
+            show_labels: true,
+            base_bars: 50.0,
+            bar_color_scheme: BarColorScheme::default(),
+            mapper: DefaultMap,
+            bin_aggregator: BinAggregator::Average,
+        }
+    }
+}
+
+impl<'a, I, T, M> canvas::Program<Interaction> for BarGraph<'a, I, T, M>
+where
+    I: Iterator<Item = T> + Clone + 'a,
+    M: ValueMapper<T>,
 {
     type State = BarGraphState;
 
@@ -176,27 +177,31 @@ where
         match event {
             Event::Mouse(mouse::Event::CursorMoved { .. }) => {
                 if let Some(cursor_position) = cursor.position_in(bounds) {
-                    let effective_zoom = self.effective_zoom(state);
-                    let visible_bars = match effective_zoom {
-                        Zoom::Full => self.datapoints.clone().count(),
-                        Zoom::Value(zoom_value) => (self.base_bars * zoom_value) as usize,
-                    };
-                    let bar_width = bounds.width / visible_bars as f32;
+                    let total_items = self.datapoints.clone().count();
+                    let visible_bars = self.desired_bins(total_items);
 
-                    let bar_index = (cursor_position.x / bar_width) as usize;
+                    if visible_bars > 0 {
+                        let bar_width = bounds.width / visible_bars as f32;
+                        let bar_index = (cursor_position.x / bar_width) as usize;
 
-                    if bar_index < visible_bars {
-                        if state.hovered_bar != Some(bar_index) {
-                            state.hovered_bar = Some(bar_index);
-                            return Some(canvas::Action::publish(Interaction::BarHovered(
-                                bar_index,
-                            )));
+                        if bar_index < visible_bars {
+                            if state.hovered_bar != Some(bar_index) {
+                                state.hovered_bar = Some(bar_index);
+                                self.cache.clear();
+                                return Some(canvas::Action::publish(Interaction::BarHovered(
+                                    bar_index,
+                                )));
+                            }
+                        } else if state.hovered_bar.is_some() {
+                            state.hovered_bar = None;
+                            self.cache.clear();
+                            return Some(canvas::Action::request_redraw());
                         }
-                    } else if state.hovered_bar.is_some() {
-                        state.hovered_bar = None;
                     }
                 } else if state.hovered_bar.is_some() {
                     state.hovered_bar = None;
+                    self.cache.clear();
+                    return Some(canvas::Action::request_redraw());
                 }
                 None
             }
@@ -206,26 +211,6 @@ where
                 } else {
                     None
                 }
-            }
-            Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
-                if cursor.is_over(bounds) {
-                    let new_zoom = match delta {
-                        mouse::ScrollDelta::Lines { y, .. }
-                        | mouse::ScrollDelta::Pixels { y, .. } => {
-                            if *y > 0.0 {
-                                state.zoom.increment_with_limits(self.zoom_max)
-                            } else {
-                                state.zoom.decrement_with_limits(self.zoom_min)
-                            }
-                        }
-                    };
-
-                    if new_zoom != state.zoom {
-                        state.zoom = new_zoom;
-                        return Some(canvas::Action::publish(Interaction::ZoomChanged(new_zoom)));
-                    }
-                }
-                None
             }
             _ => None,
         }
@@ -243,28 +228,45 @@ where
             let cursor = cursor.position_in(bounds);
             let bounds = frame.size();
 
-            let effective_zoom = self.effective_zoom(state);
-            let visible_bars = match effective_zoom {
-                Zoom::Full => self.datapoints.clone().count(),
-                Zoom::Value(zoom_value) => (self.base_bars * zoom_value) as usize,
-            };
+            // Collect raw values via the mapper
+            let values_all: Vec<f64> = self
+                .datapoints
+                .clone()
+                .map(|v| self.mapper.map(&v))
+                .collect();
 
-            // Enumerate datapoints to get index
-            let datapoints: Vec<(usize, T)> = self.datapoints.clone().enumerate().collect();
-
-            if datapoints.is_empty() {
+            if values_all.is_empty() {
                 return;
             }
 
-            // Calculate average for color scheme
-            let values: Vec<f64> = datapoints
-                .iter()
-                .map(|(_, v)| (self.to_float)(*v))
-                .collect();
-            let average = values.iter().sum::<f64>() / values.len() as f64;
+            // Aggregate into bins
+            let desired_bins = self.desired_bins(values_all.len());
+            let bin_size = ((values_all.len() as f32) / desired_bins as f32)
+                .ceil()
+                .max(1.0) as usize;
+            let mut binned: Vec<f64> = Vec::with_capacity(desired_bins);
+            let mut i = 0;
+            while i < values_all.len() {
+                let end = (i + bin_size).min(values_all.len());
+                let slice = &values_all[i..end];
+                let value = match self.bin_aggregator {
+                    BinAggregator::Average => {
+                        let sum: f64 = slice.iter().sum();
+                        sum / slice.len() as f64
+                    }
+                    BinAggregator::Sum => slice.iter().sum(),
+                    BinAggregator::Max => slice
+                        .iter()
+                        .cloned()
+                        .fold(f64::NEG_INFINITY, |a, b| a.max(b)),
+                };
+                binned.push(value);
+                i = end;
+            }
 
-            // Find max value for scaling
-            let max_value = values.iter().fold(0.0f64, |a, &b| a.max(b));
+            let visible_bars = binned.len();
+            let average = binned.iter().copied().sum::<f64>() / visible_bars as f64;
+            let max_value = binned.iter().fold(0.0f64, |a, &b| a.max(b));
             if max_value == 0.0 {
                 return;
             }
@@ -274,14 +276,14 @@ where
                 frame,
                 bounds,
                 visible_bars,
-                &datapoints,
+                &binned,
                 average,
                 max_value,
                 theme,
             );
             self.draw_grid_and_scale(frame, bounds, visible_bars, max_value, theme);
             self.draw_average_line(frame, bounds, average, max_value);
-            self.draw_bar_labels_and_hover(frame, bounds, visible_bars, &datapoints, cursor, theme);
+            self.draw_bar_labels_and_hover(frame, bounds, visible_bars, &binned, cursor, theme);
         });
 
         vec![geometry]

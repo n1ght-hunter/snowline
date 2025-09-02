@@ -16,6 +16,7 @@ pub struct BarColorParams<'a> {
 
 pub enum BarColorScheme {
     Single(Color),
+    Palette(Vec<Color>),
     Function(Box<dyn Fn(&BarColorParams) -> Color + Send + Sync>),
 }
 
@@ -24,6 +25,14 @@ impl BarColorScheme {
     pub fn call(&self, params: &BarColorParams) -> Color {
         match self {
             BarColorScheme::Single(color) => *color,
+            BarColorScheme::Palette(colors) => {
+                if colors.is_empty() {
+                    Color::from_rgb(0.7, 0.7, 0.7)
+                } else {
+                    let idx = params.index % colors.len();
+                    colors[idx]
+                }
+            }
             BarColorScheme::Function(function) => function(params),
         }
     }
@@ -39,6 +48,11 @@ impl BarColorScheme {
     /// Create a single color scheme
     pub fn new_single(color: Color) -> Self {
         Self::Single(color)
+    }
+
+    /// Create a palette-based color scheme that cycles colors by index
+    pub fn palette(colors: Vec<Color>) -> Self {
+        Self::Palette(colors)
     }
 
     /// Default performance-based color scheme
@@ -59,6 +73,22 @@ impl BarColorScheme {
         Self::new_function(|params| {
             let palette = params.theme.extended_palette();
             palette.primary.base.color
+        })
+    }
+
+    /// Gradient color scheme from green to red based on value:average
+    pub fn gradient() -> Self {
+        Self::new_function(|params| {
+            let ratio = (params.value / params.average).min(2.0).max(0.5);
+            let normalized = ((ratio - 1.0) / 1.0).max(-1.0).min(1.0);
+
+            if normalized <= 0.0 {
+                let t = (-normalized) as f32;
+                Color::from_rgb(0.2 + t * 0.8, 0.8, 0.2)
+            } else {
+                let t = normalized as f32;
+                Color::from_rgb(1.0, 0.8 - t * 0.6, 0.2)
+            }
         })
     }
 
@@ -86,6 +116,7 @@ impl Clone for BarColorScheme {
     fn clone(&self) -> Self {
         match self {
             BarColorScheme::Single(color) => BarColorScheme::Single(*color),
+            BarColorScheme::Palette(colors) => BarColorScheme::Palette(colors.clone()),
             BarColorScheme::Function(_) => {
                 // Can't clone functions, so return default
                 Self::default()

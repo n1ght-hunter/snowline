@@ -1,14 +1,15 @@
 //! Drawing utilities for bar graphs
 
 use super::{BarGraph, color_scheme::BarColorParams};
+use crate::utils::ValueMapper;
 use iced::{
     Bottom, Center, Color, Font, Pixels, Point, Rectangle, Right, Size, Theme, Top, widget::canvas,
 };
 
-impl<'a, I, T> BarGraph<'a, I, T>
+impl<'a, I, T, M> BarGraph<'a, I, T, M>
 where
     I: Iterator<Item = T> + Clone + 'a,
-    T: Copy + Into<f64>,
+    M: ValueMapper<T>,
 {
     /// Draw the bars themselves
     pub(super) fn draw_bars(
@@ -16,12 +17,12 @@ where
         frame: &mut canvas::Frame,
         bounds: Size,
         visible_bars: usize,
-        datapoints: &[(usize, T)],
+        values: &[f64],
         average: f64,
         max_value: f64,
         theme: &Theme,
     ) {
-        if datapoints.is_empty() || max_value == 0.0 {
+        if values.is_empty() || max_value == 0.0 {
             return;
         }
 
@@ -30,8 +31,8 @@ where
         let available_height = bounds.height - bottom_margin;
         let pixels_per_unit = available_height / max_value as f32;
 
-        for (i, (_original_index, datapoint)) in datapoints.iter().take(visible_bars).enumerate() {
-            let value = (self.to_float)(*datapoint);
+        for (i, value) in values.iter().take(visible_bars).enumerate() {
+            let value = *value;
 
             // Minimum bar height for zero values to be visible
             let min_bar_height = if value == 0.0 { 3.0 } else { 0.0 };
@@ -75,11 +76,7 @@ where
                 }
             };
 
-            frame.fill_rectangle(
-                bar.position(),
-                bar.size(),
-                self.bar_color.unwrap_or(bar_color),
-            );
+            frame.fill_rectangle(bar.position(), bar.size(), self.bar_color.unwrap_or(bar_color));
         }
     }
 
@@ -89,11 +86,11 @@ where
         frame: &mut canvas::Frame,
         bounds: Size,
         visible_bars: usize,
-        datapoints: &[(usize, T)],
+        values: &[f64],
         cursor: Option<Point>,
         theme: &Theme,
     ) {
-        if datapoints.is_empty() {
+        if values.is_empty() {
             return;
         }
 
@@ -101,8 +98,8 @@ where
         let bottom_margin = 40.0;
         let palette = theme.extended_palette();
 
-        for (i, (_original_index, datapoint)) in datapoints.iter().take(visible_bars).enumerate() {
-            let value = (self.to_float)(*datapoint);
+        for (i, value) in values.iter().take(visible_bars).enumerate() {
+            let value = *value;
 
             // Draw bar index labels at bottom
             if self.show_labels {

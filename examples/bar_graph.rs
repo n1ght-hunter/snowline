@@ -1,5 +1,5 @@
-use iced::Length;
-use snowline::bar_graph::BarGraph;
+use iced::{Color, Length};
+use snowline::bar_graph::{self, BarGraph};
 
 fn main() {
     iced::application(App::new, App::update, App::view)
@@ -34,19 +34,23 @@ impl App {
     }
 
     fn view(&self) -> iced::Element<'_, Message> {
-        let text = iced::widget::text("Bar Graph - Scroll to zoom, hover for values");
+        let text = iced::widget::text("Bar Graph - Aggregated bins, hover for values");
 
         // Create data iterator - now just pass the values, enumeration happens internally
         let data_iter = self.data.iter().copied();
         let graph = iced::Element::from(
             iced::widget::canvas(
-                BarGraph::new(data_iter, &self.bar_graph_cache, |x| x as f64)
+                BarGraph::new(data_iter, &self.bar_graph_cache)
                     .bar_width(8.0)
-                    .performance_colors()
+                    .bar_color_scheme(bar_graph::color_scheme::BarColorScheme::palette(vec![
+                        Color::from_rgb(0.2, 0.6, 1.0),
+                        Color::from_rgb(1.0, 0.6, 0.2),
+                        Color::from_rgb(0.3, 0.9, 0.4),
+                    ]))
                     .show_grid(true)
                     .show_labels(true)
-                    .base_bars(50.0)
-                    .zoom_range(0.1, 5.0),
+                    .bins(10)
+                    .bin_aggregator(bar_graph::BinAggregator::Average),
             )
             .width(Length::Fixed(650.0))
             .height(Length::Fixed(350.0)),

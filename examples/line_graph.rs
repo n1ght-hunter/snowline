@@ -40,7 +40,7 @@ impl App {
         let data_iter = self.data.iter().copied();
         let graph = iced::Element::from(
             iced::widget::canvas(
-                LineGraph::new(data_iter, &self.line_graph_cache, |x| x as f64)
+                LineGraph::new(data_iter, &self.line_graph_cache)
                     .show_points(true)
                     .point_radius(4.0)
                     .line_width(2.5)

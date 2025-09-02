@@ -5,7 +5,7 @@ use iced::{
 };
 
 use crate::{
-    utils::{GridConfig, draw_grid},
+    utils::{DefaultMap, GridConfig, ValueMapper, draw_grid},
     zoom::Zoom,
 };
 
@@ -20,7 +20,7 @@ use state::LineGraphState;
 pub use crate::utils::LineInteraction as Interaction;
 
 #[allow(missing_debug_implementations)]
-pub struct LineGraph<'a, I, T>
+pub struct LineGraph<'a, I, T, M = DefaultMap>
 where
     I: Iterator<Item = T> + Clone + 'a,
 {
@@ -37,7 +37,7 @@ where
     pub zoom_min: f32,
     pub zoom_max: f32,
     pub point_color_scheme: PointColorScheme,
-    pub to_float: fn(T) -> f64,
+    pub mapper: M,
     pub external_zoom: Option<Zoom>, // Optional external zoom override
 }
 
@@ -46,7 +46,7 @@ where
     I: Iterator<Item = T> + Clone + 'a,
     T: Copy + Into<f64>,
 {
-    pub fn new(datapoints: I, cache: &'a canvas::Cache, to_float: fn(T) -> f64) -> Self {
+    pub fn new(datapoints: I, cache: &'a canvas::Cache) -> Self {
         Self {
             datapoints,
             cache,
@@ -61,20 +61,36 @@ where
             zoom_min: 0.1,
             zoom_max: 10.0,
             point_color_scheme: PointColorScheme::default(),
-            to_float,
+            mapper: DefaultMap,
             external_zoom: None,
         }
     }
 }
 
-impl<'a, I, T> LineGraph<'a, I, T>
+impl<'a, I, T, M> LineGraph<'a, I, T, M>
 where
     I: Iterator<Item = T> + Clone + 'a,
-    T: Copy + Into<f64>,
+    M: ValueMapper<T>,
 {
-    /// Get the initial state for this LineGraph
-    pub fn initial_state(&self) -> LineGraphState {
-        LineGraphState::new(self.zoom)
+    /// Construct with a custom mapper implementation
+    pub fn with_mapper(datapoints: I, cache: &'a canvas::Cache, mapper: M) -> Self {
+        Self {
+            datapoints,
+            cache,
+            line_color: None,
+            line_width: 2.0,
+            show_points: true,
+            point_radius: 3.0,
+            show_grid: true,
+            show_labels: true,
+            zoom: Zoom::default(),
+            base_points: 50.0,
+            zoom_min: 0.1,
+            zoom_max: 10.0,
+            point_color_scheme: PointColorScheme::default(),
+            mapper,
+            external_zoom: None,
+        }
     }
 
     /// Set external zoom (overrides internal state zoom)
@@ -184,10 +200,10 @@ where
 }
 
 // Helper methods for LineGraph
-impl<'a, I, T> LineGraph<'a, I, T>
+impl<'a, I, T, M> LineGraph<'a, I, T, M>
 where
     I: Iterator<Item = T> + Clone + 'a,
-    T: Copy + Into<f64>,
+    M: ValueMapper<T>,
 {
     /// Get the effective zoom value (external zoom if set, otherwise state zoom)
     fn effective_zoom(&self, state: &LineGraphState) -> Zoom {
@@ -195,10 +211,10 @@ where
     }
 }
 
-impl<'a, I, T> canvas::Program<Interaction> for LineGraph<'a, I, T>
+impl<'a, I, T, M> canvas::Program<Interaction> for LineGraph<'a, I, T, M>
 where
     I: Iterator<Item = T> + Clone + 'a,
-    T: Copy + Into<f64>,
+    M: ValueMapper<T>,
 {
     type State = LineGraphState;
 
@@ -353,7 +369,7 @@ where
             // Find min/max values for proper scaling from visible data
             let values: Vec<f64> = visible_datapoints
                 .iter()
-                .map(|(_, v)| (self.to_float)(*v))
+                .map(|(_, v)| self.mapper.map(v))
                 .collect();
             let min_value = values.iter().fold(f64::INFINITY, |a, &b| a.min(b));
             let max_value = values.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
@@ -372,7 +388,7 @@ where
                 .map(|(i, (_, value))| {
                     let x = padding
                         + (i as f32 / (visible_datapoints.len() - 1).max(1) as f32) * chart_width;
-                    let value_f64 = (self.to_float)(*value);
+                    let value_f64 = self.mapper.map(value);
                     let normalized_value = (value_f64 - min_value) / value_range;
                     let y = padding + chart_height - (normalized_value as f32 * chart_height);
                     Point::new(x, y)
@@ -406,7 +422,7 @@ where
                 // Convert visible datapoints to (usize, f64) for the draw_labels method
                 let visible_datapoints_f64: Vec<(usize, f64)> = visible_datapoints
                     .iter()
-                    .map(|(i, v)| (*i, (self.to_float)(*v)))
+                    .map(|(i, v)| (*i, self.mapper.map(v)))
                     .collect();
 
                 self.draw_labels(
@@ -430,10 +446,10 @@ where
     }
 }
 
-impl<'a, I, T> LineGraph<'a, I, T>
+impl<'a, I, T, M> LineGraph<'a, I, T, M>
 where
     I: Iterator<Item = T> + Clone + 'a,
-    T: Copy + Into<f64>,
+    M: ValueMapper<T>,
 {
     fn find_nearest_point(
         &self,
@@ -496,7 +512,7 @@ where
         // We also need the y-coordinates to calculate true distance
         let values: Vec<f64> = visible_datapoints
             .iter()
-            .map(|(_, v)| (self.to_float)(*v))
+            .map(|(_, v)| self.mapper.map(v))
             .collect();
 
         if values.is_empty() {
