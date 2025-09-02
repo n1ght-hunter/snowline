@@ -289,9 +289,10 @@ where
                             if new_zoom != state.zoom {
                                 state.zoom = new_zoom;
                                 self.cache.clear();
-                                return Some(canvas::Action::publish(Interaction::ZoomChanged(
-                                    new_zoom,
-                                )));
+                                return Some(
+                                    canvas::Action::publish(Interaction::ZoomChanged(new_zoom))
+                                        .and_capture(),
+                                );
                             }
                         }
                     }

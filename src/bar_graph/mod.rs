@@ -218,7 +218,7 @@ where
 
     fn draw(
         &self,
-        state: &Self::State,
+        _state: &Self::State,
         renderer: &Renderer,
         theme: &Theme,
         bounds: Rectangle,
