@@ -1,10 +1,8 @@
-mod common;
-
 use iced::Length;
 use snowline::bar_graph::BarGraph;
 
 fn main() {
-    common::base::application(App::new, App::update, App::view)
+    iced::application(App::new, App::update, App::view)
         .run()
         .unwrap();
 }
