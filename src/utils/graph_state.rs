@@ -28,14 +28,7 @@ pub fn calculate_visible_range(total_items: usize, zoom: Zoom, base_items: f32) 
 
     let start_index = match zoom {
         Zoom::Full => 0, // Show all data from the beginning
-        Zoom::Value(_) => {
-            if total_items > visible_count {
-                // Show the most recent data
-                total_items - visible_count
-            } else {
-                0
-            }
-        }
+        Zoom::Value(_) => total_items.saturating_sub(visible_count),
     };
 
     (start_index, visible_count)

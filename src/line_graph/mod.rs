@@ -261,14 +261,13 @@ where
                 None
             }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                if let Some(cursor_position) = cursor.position_in(bounds) {
-                    if let Some(point_index) =
+                if let Some(cursor_position) = cursor.position_in(bounds)
+                    && let Some(point_index) =
                         self.find_nearest_point(cursor_position, bounds, state)
-                    {
-                        return Some(canvas::Action::publish(Interaction::PointClicked(
-                            point_index,
-                        )));
-                    }
+                {
+                    return Some(canvas::Action::publish(Interaction::PointClicked(
+                        point_index,
+                    )));
                 }
                 None
             }
@@ -398,12 +397,12 @@ where
 
             // Draw grid if enabled
             if self.show_grid {
-                self.draw_grid(frame, padding, chart_width, chart_height, &palette);
+                self.draw_grid(frame, padding, chart_width, chart_height, palette);
             }
 
             // Draw the line
             if points.len() > 1 {
-                self.draw_line(frame, &points, &palette);
+                self.draw_line(frame, &points, palette);
             }
 
             // Draw data points if enabled (but not in full view)
@@ -436,7 +435,7 @@ where
                     max_value,
                     average,
                     value_range,
-                    &palette,
+                    palette,
                     effective_zoom,
                     &visible_datapoints_f64,
                 );
@@ -723,6 +722,7 @@ where
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn draw_labels(
         &self,
         frame: &mut canvas::Frame,

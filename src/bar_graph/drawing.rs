@@ -12,6 +12,7 @@ where
     M: ValueMapper<T>,
 {
     /// Draw the bars themselves
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn draw_bars(
         &self,
         frame: &mut canvas::Frame,
@@ -76,7 +77,11 @@ where
                 }
             };
 
-            frame.fill_rectangle(bar.position(), bar.size(), self.bar_color.unwrap_or(bar_color));
+            frame.fill_rectangle(
+                bar.position(),
+                bar.size(),
+                self.bar_color.unwrap_or(bar_color),
+            );
         }
     }
 
@@ -126,37 +131,37 @@ where
                 height: bounds.height - bottom_margin,
             };
 
-            if let Some(cursor_pos) = cursor {
-                if bar_overlay.contains(cursor_pos) {
-                    frame.fill_rectangle(
-                        bar_overlay.position(),
-                        bar_overlay.size(),
-                        Color::BLACK.scale_alpha(0.3),
-                    );
+            if let Some(cursor_pos) = cursor
+                && bar_overlay.contains(cursor_pos)
+            {
+                frame.fill_rectangle(
+                    bar_overlay.position(),
+                    bar_overlay.size(),
+                    Color::BLACK.scale_alpha(0.3),
+                );
 
-                    if self.show_labels {
-                        let fits = cursor_pos.y >= 10.0;
-                        let label_y = if value == 0.0 {
-                            bounds.height - bottom_margin - 15.0
+                if self.show_labels {
+                    let fits = cursor_pos.y >= 10.0;
+                    let label_y = if value == 0.0 {
+                        bounds.height - bottom_margin - 15.0
+                    } else {
+                        cursor_pos.y
+                    };
+
+                    frame.fill_text(canvas::Text {
+                        content: if value == 0.0 {
+                            "0".to_string()
                         } else {
-                            cursor_pos.y
-                        };
-
-                        frame.fill_text(canvas::Text {
-                            content: if value == 0.0 {
-                                "0".to_string()
-                            } else {
-                                format!("{:.1}", value)
-                            },
-                            position: Point::new(cursor_pos.x, label_y),
-                            color: palette.background.base.text,
-                            size: Pixels(12.0),
-                            font: Font::MONOSPACE,
-                            align_x: Center.into(),
-                            align_y: if fits { Bottom } else { Top },
-                            ..canvas::Text::default()
-                        });
-                    }
+                            format!("{:.1}", value)
+                        },
+                        position: Point::new(cursor_pos.x, label_y),
+                        color: palette.background.base.text,
+                        size: Pixels(12.0),
+                        font: Font::MONOSPACE,
+                        align_x: Center.into(),
+                        align_y: if fits { Bottom } else { Top },
+                        ..canvas::Text::default()
+                    });
                 }
             }
         }
@@ -212,7 +217,7 @@ where
         );
 
         // Draw vertical grid lines
-        let vertical_steps = (visible_bars / 2).max(1).min(10);
+        let vertical_steps = (visible_bars / 2).clamp(1, 10);
         for i in 0..=vertical_steps {
             let x = bounds.width * (i as f32 / vertical_steps as f32);
             frame.fill_rectangle(

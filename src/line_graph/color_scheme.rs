@@ -65,8 +65,8 @@ impl PointColorScheme {
     /// Gradient color scheme from green to red
     pub fn gradient() -> Self {
         Self::new_function(|params| {
-            let ratio = (params.value / params.average).min(2.0).max(0.5);
-            let normalized = ((ratio - 1.0) / 1.0).max(-1.0).min(1.0);
+            let ratio = (params.value / params.average).clamp(0.5, 2.0);
+            let normalized = ((ratio - 1.0) / 1.0).clamp(-1.0, 1.0);
 
             if normalized <= 0.0 {
                 let t = (-normalized) as f32;

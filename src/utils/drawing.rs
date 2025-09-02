@@ -92,6 +92,7 @@ pub fn draw_grid(
 }
 
 /// Draw value labels on the Y-axis
+#[allow(clippy::too_many_arguments)]
 pub fn draw_y_axis_labels(
     frame: &mut canvas::Frame,
     padding: f32,
@@ -135,13 +136,14 @@ pub fn draw_y_axis_labels(
             size: Pixels(9.0),
             font: Font::MONOSPACE,
             align_x: iced::alignment::Horizontal::Right.into(),
-            align_y: iced::alignment::Vertical::Center.into(),
+            align_y: iced::alignment::Vertical::Center,
             ..canvas::Text::default()
         });
     }
 }
 
 /// Draw an average line across the chart
+#[allow(clippy::too_many_arguments)]
 pub fn draw_average_line(
     frame: &mut canvas::Frame,
     padding: f32,

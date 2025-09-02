@@ -205,13 +205,9 @@ where
                 }
                 None
             }
-            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                if let Some(bar_index) = state.hovered_bar {
-                    Some(canvas::Action::publish(Interaction::BarClicked(bar_index)))
-                } else {
-                    None
-                }
-            }
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => state
+                .hovered_bar
+                .map(|bar_index| canvas::Action::publish(Interaction::BarClicked(bar_index))),
             _ => None,
         }
     }
