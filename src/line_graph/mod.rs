@@ -285,11 +285,11 @@ pub struct LabelConfig {
 impl Default for LabelConfig {
     fn default() -> Self {
         Self {
-            unit_suffix: "ms".to_string(),
+            unit_suffix: "".to_string(),
             y_axis_decimals: 0,
             tooltip_decimals: 2,
             average_decimals: 1,
-            title: Some("Performance Timeline".to_string()),
+            title: None,
         }
     }
 }
@@ -924,7 +924,7 @@ where
                 );
 
                 let global_x = *global_indices.get(i).unwrap_or(&i);
-                let tooltip_text_value = self.labels.format_tooltip(value);
+                let tooltip_text_value = self.labels.format_tooltip(*value);
                 frame.fill_text(canvas::Text {
                     content: format!("x {} • {}", global_x, tooltip_text_value),
                     position: Point::new(point.x, tooltip_y + tooltip_height / 2.0),
