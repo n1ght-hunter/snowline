@@ -473,7 +473,7 @@ where
                                         PanMode::Absolute(start)
                                     };
                                     self.cache.clear();
-                                    return Some(canvas::Action::request_redraw());
+                                    return Some(canvas::Action::request_redraw().and_capture());
                                 }
                                 // In full view, nothing to pan
                                 return None;
@@ -562,7 +562,7 @@ where
 
                                     state.zoom = new_zoom;
                                     self.cache.clear();
-                                    return Some(canvas::Action::request_redraw());
+                                    return Some(canvas::Action::request_redraw().and_capture());
                                 }
                             }
                         }
