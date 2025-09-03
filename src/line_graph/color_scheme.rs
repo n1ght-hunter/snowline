@@ -46,7 +46,7 @@ impl PointColorScheme {
         Self::new_function(|params| {
             let pattern = params.theme.extended_palette();
             if params.value < params.average * 0.7 {
-                pattern.success.base.color 
+                pattern.success.base.color
             } else if params.value > params.average * 1.3 {
                 pattern.danger.base.color
             } else {

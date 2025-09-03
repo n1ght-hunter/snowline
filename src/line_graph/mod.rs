@@ -1,11 +1,11 @@
 pub use canvas::Cache;
 use iced::{
-    Center, Color, Event, Font, Pixels, Point, Rectangle, Renderer, Right, Size, Theme, mouse,
-    widget::canvas,
+    Center, Color, Event, Font, Pixels, Point, Rectangle, Renderer, Right, Size, Theme, keyboard,
+    mouse, widget::canvas,
 };
 
 use crate::{
-    utils::{DefaultMap, GridConfig, ValueMapper, draw_grid},
+    utils::{DefaultMap, GridConfig, LabelFormatter, ValueMapper, draw_grid},
     zoom::Zoom,
 };
 
@@ -14,7 +14,7 @@ pub mod color_scheme;
 use color_scheme::{PointColorParams, PointColorScheme};
 
 pub mod state;
-use state::LineGraphState;
+use state::{LineGraphState, PanMode};
 
 // Re-export the shared interaction type for backward compatibility
 pub use crate::utils::LineInteraction as Interaction;
@@ -39,6 +39,9 @@ where
     pub point_color_scheme: PointColorScheme,
     pub mapper: M,
     pub external_zoom: Option<Zoom>, // Optional external zoom override
+    pub len: usize,
+    pub labels: LabelConfig,
+    pub zoom_anchor: ZoomAnchor,
 }
 
 impl<'a, I, T> LineGraph<'a, I, T>
@@ -48,6 +51,7 @@ where
 {
     pub fn new(datapoints: I, cache: &'a canvas::Cache) -> Self {
         Self {
+            len: datapoints.clone().count(),
             datapoints,
             cache,
             line_color: None,
@@ -63,6 +67,8 @@ where
             point_color_scheme: PointColorScheme::default(),
             mapper: DefaultMap,
             external_zoom: None,
+            labels: LabelConfig::default(),
+            zoom_anchor: ZoomAnchor::End,
         }
     }
 }
@@ -72,9 +78,58 @@ where
     I: Iterator<Item = T> + Clone + 'a,
     M: ValueMapper<T>,
 {
+    /// Compute clamped visible item count for a given zoom.
+    fn visible_count(&self, total: usize, zoom: Zoom) -> usize {
+        if total == 0 {
+            return 0;
+        }
+        match zoom {
+            Zoom::Full => total,
+            Zoom::Value(zf) => {
+                let desired = if zf >= 1.0 {
+                    // When zoomed in, ensure we still show at least 2 points
+                    (self.base_points / zf).max(2.0) as usize
+                } else {
+                    (self.base_points / zf) as usize
+                };
+                desired.clamp(1, total)
+            }
+        }
+    }
+
+    /// Compute visible window as a half-open range [start, end).
+    /// Guarantees 0 <= start <= end <= total.
+    fn window_indices(
+        &self,
+        total: usize,
+        state: &LineGraphState,
+        max_visible_points: usize,
+    ) -> std::ops::Range<usize> {
+        if total == 0 || max_visible_points == 0 {
+            return 0..0;
+        }
+
+        let start = if total > max_visible_points {
+            let max_start = total.saturating_sub(max_visible_points);
+            match state.pan.mode {
+                PanMode::Start => 0,
+                PanMode::End => max_start,
+                PanMode::Absolute(s) => s.min(max_start),
+            }
+        } else {
+            0
+        };
+
+        let end = start
+            .saturating_add(max_visible_points)
+            .min(total)
+            .max(start);
+        start..end
+    }
     /// Construct with a custom mapper implementation
     pub fn with_mapper(datapoints: I, cache: &'a canvas::Cache, mapper: M) -> Self {
         Self {
+            len: datapoints.clone().count(),
             datapoints,
             cache,
             line_color: None,
@@ -90,6 +145,8 @@ where
             point_color_scheme: PointColorScheme::default(),
             mapper,
             external_zoom: None,
+            labels: LabelConfig::default(),
+            zoom_anchor: ZoomAnchor::End,
         }
     }
 
@@ -102,6 +159,42 @@ where
     /// Clear external zoom (use internal state zoom)
     pub fn use_internal_zoom(mut self) -> Self {
         self.external_zoom = None;
+        self
+    }
+
+    // Label configuration
+    pub fn label_config(mut self, labels: LabelConfig) -> Self {
+        self.labels = labels;
+        self
+    }
+
+    pub fn unit_suffix(mut self, unit: impl Into<String>) -> Self {
+        self.labels.unit_suffix = unit.into();
+        self
+    }
+
+    pub fn y_axis_decimals(mut self, d: u8) -> Self {
+        self.labels.y_axis_decimals = d;
+        self
+    }
+
+    pub fn tooltip_decimals(mut self, d: u8) -> Self {
+        self.labels.tooltip_decimals = d;
+        self
+    }
+
+    pub fn average_decimals(mut self, d: u8) -> Self {
+        self.labels.average_decimals = d;
+        self
+    }
+
+    pub fn title_text(mut self, title: Option<String>) -> Self {
+        self.labels.title = title;
+        self
+    }
+
+    pub fn zoom_anchor(mut self, anchor: ZoomAnchor) -> Self {
+        self.zoom_anchor = anchor;
         self
     }
 
@@ -173,17 +266,98 @@ where
         self.point_color_scheme = scheme;
         self
     }
-}
 
-// Helper methods for LineGraph
-impl<'a, I, T, M> LineGraph<'a, I, T, M>
-where
-    I: Iterator<Item = T> + Clone + 'a,
-    M: ValueMapper<T>,
-{
     /// Get the effective zoom value (external zoom if set, otherwise state zoom)
     fn effective_zoom(&self, state: &LineGraphState) -> Zoom {
         self.external_zoom.unwrap_or(state.zoom)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LabelConfig {
+    pub unit_suffix: String,
+    pub y_axis_decimals: u8,
+    pub tooltip_decimals: u8,
+    pub average_decimals: u8,
+    pub title: Option<String>,
+}
+
+impl Default for LabelConfig {
+    fn default() -> Self {
+        Self {
+            unit_suffix: "ms".to_string(),
+            y_axis_decimals: 0,
+            tooltip_decimals: 2,
+            average_decimals: 1,
+            title: Some("Performance Timeline".to_string()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ZoomAnchor {
+    Start,
+    Middle,
+    End,
+}
+
+impl crate::utils::LabelFormatter for LabelConfig {
+    fn format_y_axis(&self, value: f64) -> String {
+        format!(
+            "{v:.prec$}{unit}",
+            v = value,
+            prec = self.y_axis_decimals as usize,
+            unit = self.unit_suffix
+        )
+    }
+
+    fn format_tooltip(&self, value: f64) -> String {
+        format!(
+            "{v:.prec$}{unit}",
+            v = value,
+            prec = self.tooltip_decimals as usize,
+            unit = self.unit_suffix
+        )
+    }
+
+    fn format_average_text(&self, value: f64) -> String {
+        format!(
+            "avg: {v:.prec$}{unit}",
+            v = value,
+            prec = self.average_decimals as usize,
+            unit = self.unit_suffix
+        )
+    }
+
+    fn format_title(&self, zoom: Zoom) -> Option<String> {
+        let title = self.title.as_ref()?;
+        let text = match zoom {
+            Zoom::Full => format!("{} (Full View)", title),
+            Zoom::Value(zoom_factor) => {
+                if zoom_factor.fract() == 0.0 {
+                    format!("{} (Zoom: {}x)", title, zoom_factor as u32)
+                } else {
+                    format!("{} (Zoom: {:.2}x)", title, zoom_factor)
+                }
+            }
+        };
+        Some(text)
+    }
+
+    fn format_subtitle(
+        &self,
+        zoom: Zoom,
+        start_idx: usize,
+        end_idx: usize,
+        count: usize,
+    ) -> String {
+        match zoom {
+            Zoom::Full => format!(
+                "(Showing all {} points: x {}..{})",
+                count, start_idx, end_idx
+            ),
+            Zoom::Value(_) => format!("(Showing {} points: x {}..{})", count, start_idx, end_idx),
+        }
     }
 }
 
@@ -202,6 +376,14 @@ where
         cursor: mouse::Cursor,
     ) -> Option<canvas::Action<Interaction>> {
         match event {
+            Event::Keyboard(keyboard::Event::ModifiersChanged(mods)) => {
+                let new_shift = mods.shift();
+                if state.shift_down != new_shift {
+                    state.shift_down = new_shift;
+                    return Some(canvas::Action::request_redraw());
+                }
+                None
+            }
             Event::Mouse(mouse::Event::CursorMoved { .. }) => {
                 // Only enable hover when zoomed in (not in full view) and points are visible
                 let effective_zoom = self.effective_zoom(state);
@@ -248,26 +430,140 @@ where
                 None
             }
             Event::Mouse(mouse::Event::WheelScrolled { delta }) if cursor.is_over(bounds) => {
-                // Only handle zoom changes if external zoom is not set
+                // Only handle zoom/pan changes if external zoom is not set
                 if self.external_zoom.is_none() {
                     match delta {
-                        mouse::ScrollDelta::Lines { y, .. }
-                        | mouse::ScrollDelta::Pixels { y, .. } => {
-                            let new_zoom = if y.is_sign_positive() {
-                                // Zooming in
-                                state.zoom.increment_with_limits(self.zoom_max)
+                        mouse::ScrollDelta::Lines { x, y }
+                        | mouse::ScrollDelta::Pixels { x, y } => {
+                            // Determine if this is a pan
+                            let do_pan;
+                            let pan_amount;
+                            if state.shift_down {
+                                // With Shift: use dominant axis for panning
+                                do_pan = true;
+                                pan_amount = if x.abs() >= y.abs() { *x } else { *y };
                             } else {
-                                // Zooming out
-                                state.zoom.decrement_with_limits(self.zoom_min)
-                            };
+                                // Without Shift: horizontal wheel pans, vertical zooms
+                                do_pan = *x != 0.0;
+                                pan_amount = *x;
+                            }
 
-                            if new_zoom != state.zoom {
-                                state.zoom = new_zoom;
-                                self.cache.clear();
-                                return Some(
-                                    canvas::Action::publish(Interaction::ZoomChanged(new_zoom))
-                                        .and_capture(),
-                                );
+                            if do_pan {
+                                if let Zoom::Value(zf) = self.effective_zoom(state) {
+                                    let total = self.len;
+                                    // Visible window length (clamped)
+                                    let visible = self.visible_count(total, Zoom::Value(zf));
+                                    // Current clamped window
+                                    let range = self.window_indices(total, state, visible);
+                                    let max_start = total.saturating_sub(visible);
+                                    let step = ((visible as f32) * 0.1).ceil().max(1.0) as usize;
+                                    let mut start = range.start;
+                                    // Reverse pan direction: positive scroll pans right, negative pans left
+                                    if pan_amount > 0.0 {
+                                        start = start.saturating_add(step).min(max_start);
+                                    } else if pan_amount < 0.0 {
+                                        start = start.saturating_sub(step);
+                                    }
+                                    // Snap to edges so subsequent zoom can infer anchor from position
+                                    state.pan.mode = if start == 0 {
+                                        PanMode::Start
+                                    } else if start == max_start {
+                                        PanMode::End
+                                    } else {
+                                        PanMode::Absolute(start)
+                                    };
+                                    self.cache.clear();
+                                    return Some(canvas::Action::request_redraw());
+                                }
+                                // In full view, nothing to pan
+                                return None;
+                            }
+
+                            // Otherwise: vertical zoom
+                            if *y != 0.0 {
+                                let new_zoom = if y.is_sign_positive() {
+                                    // Zooming in
+                                    state.zoom.increment_with_limits(self.zoom_max)
+                                } else {
+                                    // Zooming out
+                                    state.zoom.decrement_with_limits(self.zoom_min)
+                                };
+
+                                if new_zoom != state.zoom {
+                                    // Adjust pan to keep indices anchored and in range for the new zoom window
+                                    let total = self.len;
+
+                                    let prev_zoom = state.zoom;
+                                    let prev_visible = self.visible_count(total, prev_zoom);
+                                    let prev_range =
+                                        self.window_indices(total, state, prev_visible);
+                                    let new_visible = self.visible_count(total, new_zoom);
+
+                                    let prev_max_start = total.saturating_sub(prev_visible);
+                                    let new_max_start = total.saturating_sub(new_visible);
+
+                                    let prev_start = prev_range.start;
+
+                                    #[derive(Clone, Copy)]
+                                    enum EffectiveAnchor {
+                                        Start,
+                                        Middle,
+                                        End,
+                                    }
+
+                                    // Choose anchor:
+                                    // - If all data are visible (full view), follow configured anchor.
+                                    // - Else if we're at start/end, use that edge as anchor.
+                                    // - Otherwise use configured anchor.
+                                    let anchor = if prev_visible == total {
+                                        match self.zoom_anchor {
+                                            ZoomAnchor::Start => EffectiveAnchor::Start,
+                                            ZoomAnchor::Middle => EffectiveAnchor::Middle,
+                                            ZoomAnchor::End => EffectiveAnchor::End,
+                                        }
+                                    } else if prev_start == 0 {
+                                        EffectiveAnchor::Start
+                                    } else if prev_start == prev_max_start {
+                                        EffectiveAnchor::End
+                                    } else {
+                                        match self.zoom_anchor {
+                                            ZoomAnchor::Start => EffectiveAnchor::Start,
+                                            ZoomAnchor::Middle => EffectiveAnchor::Middle,
+                                            ZoomAnchor::End => EffectiveAnchor::End,
+                                        }
+                                    };
+
+                                    let start_unclamped = match anchor {
+                                        EffectiveAnchor::Start => prev_start,
+                                        EffectiveAnchor::End => {
+                                            let prev_end = prev_range.end;
+                                            prev_end.saturating_sub(new_visible)
+                                        }
+                                        EffectiveAnchor::Middle => {
+                                            let prev_center =
+                                                prev_start.saturating_add(prev_visible / 2);
+                                            prev_center.saturating_sub(new_visible / 2)
+                                        }
+                                    };
+
+                                    let start_new = if start_unclamped > new_max_start {
+                                        new_max_start
+                                    } else {
+                                        start_unclamped
+                                    };
+
+                                    state.pan.mode = if start_new == 0 {
+                                        PanMode::Start
+                                    } else if start_new == new_max_start {
+                                        PanMode::End
+                                    } else {
+                                        PanMode::Absolute(start_new)
+                                    };
+
+                                    state.zoom = new_zoom;
+                                    self.cache.clear();
+                                    return Some(canvas::Action::request_redraw());
+                                }
                             }
                         }
                     }
@@ -304,39 +600,10 @@ where
 
             // Apply zoom to determine how many points to show
             let effective_zoom = self.effective_zoom(state);
-            let base_points = self.base_points; // Use configurable base points
-            let max_visible_points = match effective_zoom {
-                Zoom::Full => {
-                    // Full view mode - display all available data points
-                    all_datapoints.len()
-                }
-                Zoom::Value(zoom_factor) => {
-                    if zoom_factor >= 1.0 {
-                        // Zooming in: show fewer points for more detail
-                        (base_points / zoom_factor).max(5.0) as usize
-                    } else {
-                        // Zooming out: show more points for broader view
-                        (base_points / zoom_factor).min(all_datapoints.len() as f32) as usize
-                    }
-                }
-            };
+            let max_visible_points = self.visible_count(all_datapoints.len(), effective_zoom);
 
-            let start_index = match effective_zoom {
-                Zoom::Full => {
-                    // In full view mode, show all data from the beginning
-                    0
-                }
-                Zoom::Value(_) => {
-                    if all_datapoints.len() > max_visible_points {
-                        // For other zoom levels, show the most recent data
-                        all_datapoints.len() - max_visible_points
-                    } else {
-                        0
-                    }
-                }
-            };
-
-            let visible_datapoints: Vec<_> = all_datapoints.into_iter().skip(start_index).collect();
+            let range = self.window_indices(all_datapoints.len(), state, max_visible_points);
+            let visible_datapoints = &all_datapoints[range];
 
             if visible_datapoints.is_empty() {
                 return;
@@ -350,10 +617,7 @@ where
             let min_value = values.iter().fold(f64::INFINITY, |a, &b| a.min(b));
             let max_value = values.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
             let value_range = max_value - min_value;
-
-            if value_range == 0.0 {
-                return; // Avoid division by zero
-            }
+            let range_den: f64 = if value_range == 0.0 { 1.0 } else { value_range };
 
             let average = values.iter().sum::<f64>() / values.len() as f64;
 
@@ -362,10 +626,10 @@ where
                 .iter()
                 .enumerate()
                 .map(|(i, (_, value))| {
-                    let x = padding
-                        + (i as f32 / (visible_datapoints.len() - 1).max(1) as f32) * chart_width;
+                    let denom = (visible_datapoints.len().saturating_sub(1)).max(1) as f32;
+                    let x = padding + (i as f32 / denom) * chart_width;
                     let value_f64 = self.mapper.map(value);
-                    let normalized_value = (value_f64 - min_value) / value_range;
+                    let normalized_value = (value_f64 - min_value) / range_den;
                     let y = padding + chart_height - (normalized_value as f32 * chart_height);
                     Point::new(x, y)
                 })
@@ -383,10 +647,13 @@ where
 
             // Draw data points if enabled (but not in full view)
             if self.show_points && effective_zoom.is_value() {
+                let visible_indices: Vec<usize> =
+                    visible_datapoints.iter().map(|(i, _)| *i).collect();
                 self.draw_points(
                     frame,
                     &points,
                     &values,
+                    &visible_indices,
                     &state.hovered_point,
                     average,
                     theme,
@@ -445,37 +712,10 @@ where
 
         // Use the same zoom calculation logic as the draw method
         let effective_zoom = self.effective_zoom(state);
-        let base_points = self.base_points;
+        let max_visible_points = self.visible_count(all_datapoints.len(), effective_zoom);
 
-        let max_visible_points = match effective_zoom {
-            Zoom::Full => {
-                // Full view mode - display all available data points
-                all_datapoints.len()
-            }
-            Zoom::Value(zoom_factor) => {
-                if zoom_factor >= 1.0 {
-                    (base_points / zoom_factor).max(5.0) as usize
-                } else {
-                    (base_points / zoom_factor).min(all_datapoints.len() as f32) as usize
-                }
-            }
-        };
-
-        let start_index = match effective_zoom {
-            Zoom::Full => {
-                // In full view mode, show all data from the beginning
-                0
-            }
-            Zoom::Value(_) => {
-                if all_datapoints.len() > max_visible_points {
-                    all_datapoints.len() - max_visible_points
-                } else {
-                    0
-                }
-            }
-        };
-
-        let visible_datapoints: Vec<_> = all_datapoints.into_iter().skip(start_index).collect();
+        let range = self.window_indices(all_datapoints.len(), state, max_visible_points);
+        let visible_datapoints = &all_datapoints[range];
 
         if visible_datapoints.is_empty() {
             return None;
@@ -498,20 +738,17 @@ where
         let min_value = values.iter().fold(f64::INFINITY, |a, &b| a.min(b));
         let max_value = values.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
         let value_range = max_value - min_value;
-
-        if value_range == 0.0 {
-            return None;
-        }
+        let range_den: f64 = if value_range == 0.0 { 1.0 } else { value_range };
 
         let chart_height = bounds.height - 2.0 * padding;
 
         for (i, (_original_index, _)) in visible_datapoints.iter().enumerate() {
-            let x =
-                padding + (i as f32 / (visible_datapoints.len() - 1).max(1) as f32) * chart_width;
+            let denom = (visible_datapoints.len().saturating_sub(1)).max(1) as f32;
+            let x = padding + (i as f32 / denom) * chart_width;
 
             // Calculate y coordinate using same logic as drawing
             let value_f64 = values[i];
-            let normalized_value = (value_f64 - min_value) / value_range;
+            let normalized_value = (value_f64 - min_value) / range_den;
             let y = padding + chart_height - (normalized_value as f32 * chart_height);
 
             // Calculate distance to the actual point (both x and y)
@@ -601,11 +838,13 @@ where
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn draw_points(
         &self,
         frame: &mut canvas::Frame,
         points: &[Point],
         values: &[f64],
+        global_indices: &[usize],
         state: &Option<usize>,
         average: f64,
         theme: &Theme,
@@ -684,8 +923,10 @@ where
                         .with_width(1.5),
                 );
 
+                let global_x = *global_indices.get(i).unwrap_or(&i);
+                let tooltip_text_value = self.labels.format_tooltip(value * 1000.0);
                 frame.fill_text(canvas::Text {
-                    content: format!("{:.2}ms", value * 1000.0), // Convert to milliseconds
+                    content: format!("x {} • {}", global_x, tooltip_text_value),
                     position: Point::new(point.x, tooltip_y + tooltip_height / 2.0),
                     color: tooltip_text,
                     size: Pixels(11.0),
@@ -718,7 +959,8 @@ where
         let average_line_color = Color::from_rgb(1.0, 0.6, 0.2); // Orange color for average line
 
         // Enhanced average line with better visibility
-        let normalized_avg = (average - min_value) / value_range;
+        let range_den: f64 = if value_range == 0.0 { 1.0 } else { value_range };
+        let normalized_avg = (average - min_value) / range_den;
         let avg_y = padding + chart_height - (normalized_avg as f32 * chart_height);
 
         // Draw a more prominent average line with solid segments and glow effect
@@ -788,7 +1030,7 @@ where
         );
 
         frame.fill_text(canvas::Text {
-            content: format!("avg: {:.1}ms", average * 1000.0),
+            content: self.labels.format_average_text(average * 1000.0),
             position: Point::new(
                 avg_label_x + avg_label_width / 2.0,
                 avg_label_y + avg_label_height / 2.0,
@@ -821,7 +1063,7 @@ where
             );
 
             frame.fill_text(canvas::Text {
-                content: format!("{:.0}ms", value * 1000.0),
+                content: self.labels.format_y_axis(value * 1000.0),
                 position: Point::new(padding - 5.0, y),
                 color: text_color,
                 size: Pixels(9.0),
@@ -838,39 +1080,36 @@ where
         let title_bg_x = (bounds.width - title_bg_width) / 2.0;
         let title_bg_y = 5.0;
 
-        // Title background
-        frame.fill(
-            &canvas::Path::rectangle(
-                Point::new(title_bg_x, title_bg_y),
-                Size::new(title_bg_width, title_bg_height),
-            ),
-            palette.background.strong.color.scale_alpha(0.1),
-        );
+        if let Some(title_text) = self.labels.format_title(zoom) {
+            // Title background
+            frame.fill(
+                &canvas::Path::rectangle(
+                    Point::new(title_bg_x, title_bg_y),
+                    Size::new(title_bg_width, title_bg_height),
+                ),
+                palette.background.strong.color.scale_alpha(0.1),
+            );
 
-        frame.fill_text(canvas::Text {
-            content: match zoom {
-                Zoom::Full => "Performance Timeline (Full View)".to_string(),
-                Zoom::Value(zoom_factor) => {
-                    if zoom_factor.fract() == 0.0 {
-                        format!("Performance Timeline (Zoom: {}x)", zoom_factor as u32)
-                    } else {
-                        format!("Performance Timeline (Zoom: {:.2}x)", zoom_factor)
-                    }
-                }
-            },
-            position: Point::new(bounds.width / 2.0, 20.0),
-            color: text_color,
-            size: Pixels(16.0),
-            font: Font::MONOSPACE,
-            align_x: Center.into(),
-            align_y: Center.into(),
-            ..canvas::Text::default()
-        });
+            frame.fill_text(canvas::Text {
+                content: title_text,
+                position: Point::new(bounds.width / 2.0, 20.0),
+                color: text_color,
+                size: Pixels(16.0),
+                font: Font::MONOSPACE,
+                align_x: Center.into(),
+                align_y: Center.into(),
+                ..canvas::Text::default()
+            });
+        }
 
-        // Add subtitle for units and data range
-        let data_info = match zoom {
-            Zoom::Full => format!("(Showing all {} points)", visible_datapoints.len()),
-            Zoom::Value(_) => format!("(Showing last {} points)", visible_datapoints.len()),
+        // Add subtitle for units and data range (respect pan range)
+        let data_info = if let (Some((start_idx, _)), Some((end_idx, _))) =
+            (visible_datapoints.first(), visible_datapoints.last())
+        {
+            self.labels
+                .format_subtitle(zoom, *start_idx, *end_idx, visible_datapoints.len())
+        } else {
+            String::new()
         };
 
         frame.fill_text(canvas::Text {

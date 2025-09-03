@@ -5,10 +5,6 @@
 			"command": "rust-mcp-server.exe",
 			"args": []
 		},
-		"iced-server": {
-			"url": "http://127.0.0.1:8342/sse",
-			"type": "http"
-		}
 	},
 	"inputs": []
 }

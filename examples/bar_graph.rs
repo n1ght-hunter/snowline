@@ -23,7 +23,11 @@ impl App {
             bar_graph_cache: iced::widget::canvas::Cache::new(),
             data: (0..100)
                 .flat_map(|n| {
-                    (0..10).map(move |_| rand::random_range((1.0 * n as f32)..=(10.0 * n as f32)))
+                    (0..10).map(move |_| {
+                        rand::random_range(
+                            (1.0 * (n as f32).min(0.1))..=(10.0 * (n as f32).min(0.1)),
+                        )
+                    })
                 })
                 .collect(),
         }

@@ -37,6 +37,7 @@ where
     pub bar_color_scheme: BarColorScheme,
     pub mapper: M,
     pub bin_aggregator: BinAggregator,
+    pub labels: LabelConfig,
 }
 
 impl<'a, I, T, M> BarGraph<'a, I, T, M>
@@ -56,6 +57,7 @@ where
             bar_color_scheme: BarColorScheme::default(),
             mapper,
             bin_aggregator: BinAggregator::Average,
+            labels: LabelConfig::default(),
         }
     }
 
@@ -114,6 +116,32 @@ where
         self
     }
 
+    // Label configuration
+    pub fn label_config(mut self, labels: LabelConfig) -> Self {
+        self.labels = labels;
+        self
+    }
+
+    pub fn unit_suffix(mut self, unit: impl Into<String>) -> Self {
+        self.labels.unit_suffix = unit.into();
+        self
+    }
+
+    pub fn scale_decimals(mut self, d: u8) -> Self {
+        self.labels.scale_decimals = d;
+        self
+    }
+
+    pub fn tooltip_decimals(mut self, d: u8) -> Self {
+        self.labels.tooltip_decimals = d;
+        self
+    }
+
+    pub fn average_decimals(mut self, d: u8) -> Self {
+        self.labels.average_decimals = d;
+        self
+    }
+
     /// Default performance-based color scheme (green for good, red for poor, orange for average)
     pub fn performance_colors(mut self) -> Self {
         self.bar_color_scheme = BarColorScheme::performance();
@@ -138,6 +166,68 @@ where
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct LabelConfig {
+    pub unit_suffix: String,
+    pub scale_decimals: u8,
+    pub tooltip_decimals: u8,
+    pub average_decimals: u8,
+}
+
+impl Default for LabelConfig {
+    fn default() -> Self {
+        Self {
+            unit_suffix: String::new(),
+            scale_decimals: 0,
+            tooltip_decimals: 1,
+            average_decimals: 1,
+        }
+    }
+}
+
+impl crate::utils::LabelFormatter for LabelConfig {
+    fn format_y_axis(&self, value: f64) -> String {
+        format!(
+            "{v:.prec$}{unit}",
+            v = value,
+            prec = self.scale_decimals as usize,
+            unit = self.unit_suffix
+        )
+    }
+
+    fn format_tooltip(&self, value: f64) -> String {
+        format!(
+            "{v:.prec$}{unit}",
+            v = value,
+            prec = self.tooltip_decimals as usize,
+            unit = self.unit_suffix
+        )
+    }
+
+    fn format_average_text(&self, value: f64) -> String {
+        format!(
+            "Avg: {v:.prec$}{unit}",
+            v = value,
+            prec = self.average_decimals as usize,
+            unit = self.unit_suffix
+        )
+    }
+
+    fn format_title(&self, _zoom: crate::zoom::Zoom) -> Option<String> {
+        None
+    }
+
+    fn format_subtitle(
+        &self,
+        _zoom: crate::zoom::Zoom,
+        _start_idx: usize,
+        _end_idx: usize,
+        _count: usize,
+    ) -> String {
+        String::new()
+    }
+}
+
 // Default constructor using Into<f64> without custom mapper
 impl<'a, I, T> BarGraph<'a, I, T, DefaultMap>
 where
@@ -156,6 +246,7 @@ where
             bar_color_scheme: BarColorScheme::default(),
             mapper: DefaultMap,
             bin_aggregator: BinAggregator::Average,
+            labels: LabelConfig::default(),
         }
     }
 }

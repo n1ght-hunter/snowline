@@ -1,6 +1,7 @@
 //! Drawing utilities for bar graphs
 
 use super::{BarGraph, color_scheme::BarColorParams};
+use crate::utils::LabelFormatter;
 use crate::utils::ValueMapper;
 use iced::{
     Bottom, Center, Color, Font, Pixels, Point, Rectangle, Right, Size, Theme, Top, widget::canvas,
@@ -149,11 +150,7 @@ where
                     };
 
                     frame.fill_text(canvas::Text {
-                        content: if value == 0.0 {
-                            "0".to_string()
-                        } else {
-                            format!("{:.1}", value)
-                        },
+                        content: self.labels.format_tooltip(value),
                         position: Point::new(cursor_pos.x, label_y),
                         color: palette.background.base.text,
                         size: Pixels(12.0),
@@ -197,7 +194,7 @@ where
             if self.show_labels {
                 let grid_value = max_value * (1.0 - i as f64 / grid_steps as f64);
                 frame.fill_text(canvas::Text {
-                    content: format!("{:.0}", grid_value),
+                    content: self.labels.format_y_axis(grid_value),
                     position: Point::new(5.0, y - 2.0),
                     color: palette.background.base.text.scale_alpha(0.6),
                     size: Pixels(10.0),
@@ -252,7 +249,7 @@ where
         );
 
         frame.fill_text(canvas::Text {
-            content: format!("Avg: {:.1}", average),
+            content: self.labels.format_average_text(average),
             position: Point::new(bounds.width - 5.0, average_y - 2.0),
             color: Color::from_rgb(0.0, 0.6, 1.0),
             size: Pixels(12.0),
