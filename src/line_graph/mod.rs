@@ -924,7 +924,7 @@ where
                 );
 
                 let global_x = *global_indices.get(i).unwrap_or(&i);
-                let tooltip_text_value = self.labels.format_tooltip(value * 1000.0);
+                let tooltip_text_value = self.labels.format_tooltip(value);
                 frame.fill_text(canvas::Text {
                     content: format!("x {} • {}", global_x, tooltip_text_value),
                     position: Point::new(point.x, tooltip_y + tooltip_height / 2.0),
@@ -1030,7 +1030,7 @@ where
         );
 
         frame.fill_text(canvas::Text {
-            content: self.labels.format_average_text(average * 1000.0),
+            content: self.labels.format_average_text(average),
             position: Point::new(
                 avg_label_x + avg_label_width / 2.0,
                 avg_label_y + avg_label_height / 2.0,
@@ -1063,7 +1063,7 @@ where
             );
 
             frame.fill_text(canvas::Text {
-                content: self.labels.format_y_axis(value * 1000.0),
+                content: self.labels.format_y_axis(value),
                 position: Point::new(padding - 5.0, y),
                 color: text_color,
                 size: Pixels(9.0),
